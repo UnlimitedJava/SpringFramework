@@ -1,0 +1,156 @@
+◆ 주요 annotation
+(1) @Controller
+  -. 이 annotation이 붙은 클래스가 컨트롤러 클래스임을 알림
+
+(2) @RequestMapping
+  -. 요청 URL과 컨트롤러 클래스에서 그 URL을 실행할 메서드를 매핑하는 역할
+
+(3) @PathVariable
+  -. @RequestMapping 어노테이션은 url 경로에 {변수} 형식의 경로 변수를 사용할수 있는데 @PathVariable 어노테이션을 사용하면 url 경로 {변수}의 값을 요청 URL을 실행할 메소드의 파라미터(매개변수)로 값을 받을수 있다.
+
+  ex)
+   @RequestMapping(value="/replies/{bno}/{page}", method=RequestMethod.GET)
+   public ResponseEntity<Map<String, Object>> listPage(@PathVariable("bno") Integer bno, @PathVariable("page") Integer page) 
+   { ... }
+      ⇒ http://localhost:8080/replies/게시물 번호/페이지 번호와 같이 접속시 여기로 들어옴. 
+      ⇒ 즉 http://localhost:8080/replies/387/12와 같이 접속시 아래 메소드 호출됨
+      ⇒ 이때 {bno}는 listPage()의 @PathVariable이 지정하는 bno에 값이 할당되고 {page}는 @PathVariable이 지정하는 page에 할당된다.
+
+  ex) @RequestMapping("/members/{memberId}")
+    public String memDetail(@PathVariable String memberId, Model model) { ... }
+      ⇒ 경로 변수 {memberId}의 값이 memDetail() 메소드의 첫 번째 매개인자 memberId로 입력됨
+
+  ex) @RequestMapping("/members/{mId}")
+    public String memDetail(@PathVariable("mId") String memberId, Model model) { ... }
+      ⇒ 경로 변수와 memDetail() 메소드에서 사용할 매개변수 이름이 다른 경우.
+      ⇒ 경로 변수 {mid}의 값이 메소드의 매개변수 memberId로 입력되는데 동일 이름이 아니므로 @PathVariable 어노테이션 안에 ("mid")로 명시해 줌. 즉 {mId}로 들어올때 동일한 이름으로 @PathVariable String mId와 같이하면 {mId}의 값이 @PathVariable이 지정하는 String 타입의 mId로 값이 바인딩된다. 그런데 @PathVariable이 {mId}와 다른 이름으로 @PathVariable String memberId와 같이 지정하면 {mId}의 값이 memberId로 바인딩되지 않는다 이럴 경우 @PathVariable("mId") String memberId로 해줘야 {mId}의 값이 memberId로 할당이 된다.
+
+
+(4) @RequestParam
+  -. 요청 파라미터의 값을 받을 때 사용. HttpServletRequest 기능을 대체
+  ex) @RequestMapping("/members")
+    public String list2(@RequestParam("id") long eventId, Model model) { ... }
+      ⇒ 요청 URL에서 넘겨온 파라미터의 값 중에서 id의 값이 eventId에 저장된다.
+
+(5) @ModelAttribute
+  -. http://developer-joe.tistory.com/197?category=743305
+  -. 커맨더 객체의 이름이 길어서 다른 이름으로 사용하고자 할 때
+  ex) @RequestMapping("/members")
+    public String regist(@ModelAttribute("memInfo") MemberRegistRequest memRegReq) { ... }
+      ⇒ MemberRegistRequest memRegReq는 커맨더 객체인데 view에서 사용할려면 ${memberRegistRequest.name}와 같이 접근해야하는데 @ModelAttribute 어노테이션으로 인해 ${memInfo.name}과 같이 접근 가능
+
+
+◆ to drill skill
+ -. JavaScript
+ -. Ajax
+ -. Spring
+ -. jQuery
+ -. 
+
+◆ Sping 프레임워크 시작 위치 설정
+ -. src/main/webapp의 index.jsp 최초 실행
+ -. web.xml에서 DiapatcherServlet을 위한 init-param태그의 contextConfigLocation을 위한 param-value에서 지정한 xml 파일이(action-servlet.xml) 시작 위치 지정
+
+	<servlet>
+		<servlet-name>action</servlet-name>
+		<servlet-class>org.springframework.web.servlet.DispatcherServlet</servlet-class>
+		<init-param>
+			<param-name>contextConfigLocation</param-name>
+			<param-value>/WEB-INF/config/*-servlet.xml</param-value>
+			<!-- <param-value>/WEB-INF/spring/appServlet/servlet-context.xml</param-value> -->
+		</init-param>
+		<load-on-startup>1</load-on-startup>
+	</servlet>
+		
+	<servlet-mapping>
+		<servlet-name>action</servlet-name>
+		<url-pattern>*.do</url-pattern>
+	</servlet-mapping>
+
+ -. action-servlet.xml의 아래 태그에서 실제적 시작 위치 지정
+    <bean
+        class="org.springframework.web.servlet.view.UrlBasedViewResolver" p:order="1"
+        p:viewClass="org.springframework.web.servlet.view.JstlView"
+        p:prefix="/WEB-INF/jsp/" p:suffix=".jsp">
+    </bean>
+
+시작 위치는 webapp/WEB-INF/jsp/가 된다. 
+
+◆ Spring Eclipse 프로젝트 빨간 엑스박스
+  -. 프로그램은 정상적으로 실행됨
+  -. Window - Show View - General - Problems에서 에러 원인 확인할 것
+
+◆ ER 모델
+ -. Entity Relationship Model
+ -. https://m.blog.naver.com/PostView.nhn?blogId=hj_veronica&logNo=220571135622&proxyReferer=https%3A%2F%2Fwww.google.com%2F
+
+◆ MySQL 관련
+ -. 설치 위치 ⇒ C:\Program Files\MySQL\MySQL Server 5.7\bin
+ -. 버전확인 ⇒ DOS창에서 mysql --version 
+ -. id: root 
+ -. pw: ko*****
+
+◆ MySQL Root 비밀번호 분실시(Windows 환경)
+ -. services.msc 실행
+ -. MySQL 관련 서비스 모두 종료
+ -. DOS 창을 관리자 권한으로 실행
+ -. MySQL이 설치된 디렉토리의 bin으로 옮겨가서 mysqld uroot --skip-grant-tables 실행
+ -. http://oyeahhh.tistory.com/75
+ 
+◆ 현재 TCP로 사용중인 IP:Port와 그에 대한 PID 확인하기
+ -. netstat -a -n -o -p tcp
+
+◆ Java에서 설정한 값은 EL로 출력이 안된다. EL이 값을 가져올수 있는 영역(범위)
+ -. https://okky.kr/article/343576
+ -. http://ohgyun.com/45
+ -. http://jaeman1990.tistory.com/40
+ -. http://eunpoong.com/1107
+ -. 
+
+◆ 외부에서 import한 프로젝트에 빨간 엑스박스 뜰때의 대처
+ -. http://diyall.tistory.com/692
+ -. http://jayeona79.tistory.com/85
+
+◆ Spring에서 bean의 의미
+ -. Spring 초기화시에 직접 객체를 생성해서 컨테이너에 넣어놓고 사용자 요청에 따라 그 라이프 싸이클이 관리되는 모든 클래스, 객체들을 의미
+
+ -. public 생성자와 속성(컨벤션에 맞는 getter/setter 조합)을 갖는 클래스를 가르키는 뜻. POJO와도 거의 동일한 뜻.
+
+ -. A bean is an object that is instantiated, assembled, and otherwise managed by a Spring IoC container.
+
+ -. 개념 파악에 도움이 되는 곳 
+    ㆍhttp://nkcnow.tistory.com/229
+    ㆍhttp://chori84.tistory.com/14
+
+ -. <jsp:useBean id="student" class="com.joe.spring.Student" scope="page" />
+    <jsp:setProperty name="student" property="name" value="홍길동" />
+    <jsp:getProperty name="student" property="name" />
+
+ -. Spring에서의 자바 클래스를 XML로 설정하여 bean(자바 객체)으로 등록 방법
+<bean id="person" class="패키지명.Person" />
+ 
+<bean id="group" class="패키지명.Gourp" >
+   <property name="(set을뺀 메서드명)" >
+      <ref bean="person" />
+        또는
+      <bean class="패키지명.Person" />
+   </property>
+        또는
+   <property name="(set을뺀 메서드명)" ref="person" />
+</bean>
+
+
+◆ 
+java.lang.ClassNotFoundException: com.mysql.jdbc.Driver
+
+JDBC 드라이버를 찾지 못한 에러이다.
+설치된 Tomcat의 lib 폴더 아래에 복사해 준 후 톰캣 Server를 재구동시킨다.
+
+mysql-connector-java-5.1.40-bin.jar
+
+
+◆ MySQL table JOIN
+SELECT * FROM student AS a INNER JOIN address AS b ON a.stdId = b.stdId WHERE a.stdId=1;
+
+
+

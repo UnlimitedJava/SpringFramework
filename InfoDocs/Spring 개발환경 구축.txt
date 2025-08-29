@@ -1,0 +1,4041 @@
+-. 인터넷을 통해서 스프링 기본 환경설정에서부터 Mybatis를 통해 DB 연동까지 테스트 및 설정관련 간략문서 만들기
+-. Spring Quick Start 책 통해 web.xml 등 Srping이 최초 실행시 참조하는 설정 파일들의 순서와 진행과정을 확인할 것
+-. 기본 게시판 CRUD 모듈
+-. Pagination
+-. 검색 + Pagination
+
+◆ Spring Framework 설정파일 구조 이해 및 변경
+ㆍhttps://to-dy.tistory.com/15
+
+◆ Spring Framework 구동 순서
+
+1. 웹 애플리케이션이 실행되면 Tomcat(WAS)에 의해 web.xml이 loading된다.
+2. web.xml에 등록되어 있는 ContextLoaderListener(Java Class)가 생성된다. ContextLoaderListener 클래스는 ServletContextListener 인터페이스를 구현하고 있으며, ApplicationContext를 생성하는 역할을 수행한다.
+3. 생성된 ContextLoaderListener는 root-context.xml을 loading한다.
+4. root-context.xml에 등록되어 있는 Spring Container가 구동된다. 이 때 개발자가 작성한 비즈니스 로직에 대한 부분과 DAO, VO 객체들이 생성된다. 
+5. 클라이언트로부터 웹 애플리케이션이 요청이 온다.
+6. DispatcherServlet(Servlet)이 생성된다. DispatcherServlet은 FrontController의 역할을 수행한다. 클라이언트로부터 요청 온 메시지를 분석하여 알맞은 PageController에게 전달하고 응답을 받아 요청에 따른 응답을 어떻게 할 지 결정만한다. 실질적은 작업은 PageController에서 이루어지기 때문이다. 이러한 클래스들을 HandlerMapping, ViewResolver 클래스라고 한다.
+7. DispatcherServlet은 servlet-context.xml을 loading 한다.
+8. 두번째 Spring Container가 구동되며 응답에 맞는 PageController 들이 동작한다. 이 때 첫번째 Spring Container 가 구동되면서 생성된 DAO, VO, ServiceImpl 클래스들과 협업하여 알맞은 작업을 처리하게 된다.
+
+Spring MVC 처리 순서
+1. 클라이언트(Client)가 서버에 어떤 요청(Request)을 한다면 스프링에서 제공하는 DispatcherServlet 이라는 클래스(일종의 front controller)가 요청을 가로챈다.
+(web.xml에 살펴보면 모든 url ( / )에 서블릿 매핑을하여 모든 요청을 DispatcherServlet이 가로채게 해둠(변경 가능))
+2. 요청을 가로챈 DispatcherServlet은 HandlerMapping(URL 분석등..)에게 어떤 컨트롤러에게 요청을 위임하면 좋을지 물어본다.
+(HandlerMapping은 servlet-context.xml에서 @Controller로 등록한 것들을 스캔해서 찾아놨기 때문에 어느 컨트롤러에게 요청을 위임해야할지 알고 있다.)
+3. 요청에 매핑된 컨트롤러가 있다면 @RequestMapping을 통하여 요청을 처리할 메서드에 도달한다.
+4. 컨트롤러에서는 해당 요청을 처리할 Service를 주입(DI)받아 비즈니스로직을 Service에게 위임한다.
+5. Service에서는 요청에 필요한 작업 대부분(코딩)을 담당하며 데이터베이스에 접근이 필요하면 DAO를 주입받아 DB처리는 DAO에게 위임한다.
+6. DAO는 mybatis(또는 hibernate등) 설정을 이용해서 SQL 쿼리를 날려 DB에 저장되어있는 정보를 받아 서비스에게 다시 돌려준다.
+(이 때, 보통 Request와 함께 날아온 DTO 객체(@RequestParam, @RequestBody, ...)로 부터 DB 조회에 필요한 데이터를 받아와 쿼리를 만들어 보내고, 결과로 받은 Entity 객체를 가지고 Response에 필요한 DTO객체로 변환한다.)
+7. 모든 비즈니스 로직을 끝낸 서비스가 결과물을 컨트롤러에게 넘긴다.
+8. 결과물을 받은 컨트롤러는 필요에 따라 Model객체에 결과물 넣거나, 어떤 view(jsp)파일을 보여줄 것인지등의 정보를 담아 DispatcherServlet에게 보낸다.
+9. DispatcherServlet은 ViewResolver에게 받은 뷰의 대한 정보를 넘긴다.
+10. ViewResolver는 해당 JSP를 찾아서(응답할 View를 찾음) DispatcherServlet에게 알려준다.
+(servlet-context.xml에서 suffix, prefix를 통해 /WEB-INF/views/index.jsp 이렇게 만들어주는 것도 ViewResolver)
+11. DispatcherServlet은 응답할 View에게 Render를 지시하고 View는 응답 로직을 처리한다.
+12. 결과적으로 DispatcherServlet이 클라이언트에게 렌더링된 View를 응답한다.
+
+ㆍhttps://asfirstalways.tistory.com/334
+ㆍhttps://jeong-pro.tistory.com/96
+ㆍhttps://programmer7895.tistory.com/11
+
+◆ Web Root 위치와 web.xml 경로 이해하기
+Spring Framework에서 Web Root의 위치는 아래이다. BasicSettings라는 Project를 만들었다고 가정할 경우.
+
+BasicSettings/src/main/webapp/
+
+Web Root가 갖는 의미는 Web Root는 브라우저 주소창에서 직접 url을 입력하여 브라우저에서 직접 접근이 가능하다. 따라서 BasicSettings/src/main/webapp/joe.jsp가 있다면 
+http://localhost:8088/joe.jsp와 같이 직접 접근이 가능하여 웹 브라우저 상에서 joe.jsp의 내용을 보여줄수 있다.
+
+web.xml에 다음과 같은 내용이 있을때 아래 param-value의 경로는 구체적으로 어디를 말함인가? 즉 WEB-INF 앞의 /의 위치가 어디를 말함인가? 즉 Web Root(/)의 위치는 어디를 말함인가?
+
+<!-- The definition of the Root Spring Container shared by all Servlets and Filters -->
+<context-param>
+	<param-name>contextConfigLocation</param-name>
+	<param-value>/WEB-INF/spring/root-context.xml</param-value>
+</context-param>
+
+<!-- Processes application requests -->
+<servlet>
+	<servlet-name>appServlet</servlet-name>
+	<servlet-class>org.springframework.web.servlet.DispatcherServlet</servlet-class>
+	<init-param>
+		<param-name>contextConfigLocation</param-name>
+		<param-value>/WEB-INF/spring/appServlet/servlet-context.xml</param-value>
+	</init-param>
+	<load-on-startup>1</load-on-startup>
+</servlet>
+
+아래와 같은 디렉토리 구조가 있을때
+
+BasicSettings\BasicSettings\src\main
+
+BasicSettings\BasicSettings\src\main\java\
+BasicSettings\BasicSettings\src\main\resources\
+BasicSettings\BasicSettings\src\main\webapp\
+
+BasicSettings\BasicSettings\src\main\webapp\resources\
+BasicSettings\BasicSettings\src\main\webapp\WEB-INF\
+
+BasicSettings\BasicSettings\src\main\webapp\WEB-INF\classes\
+BasicSettings\BasicSettings\src\main\webapp\WEB-INF\spring\
+BasicSettings\BasicSettings\src\main\webapp\WEB-INF\views\
+
+Web Root의 위치는 BasicSettings\BasicSettings\src\main\webapp\ 이다. 
+이 위치가 브라우저에서 직접 접근이 가능한 위치이다. 이 위치에 .jsp, .html들을 만들어 두면 브라우저 주소줄에서 직접 url을 입력하여 접근이 가능하다. 그러나 Spring은 보안상의 이유로 이 위치에 소스 파일들을 두지 않는다.
+아무튼 	<param-value>/WEB-INF/spring/root-context.xml</param-value>가 가리키는 정확한 위치는 
+
+BasicSettings\BasicSettings\src\main\webapp\WEB-INF/spring/root-context.xml를 의미하는 것이다.
+결론은 Spring의 경우 기본적인 Web Root는 webapp이다.
+
+servlet-context.xml에 아래와 같은 내용이 있을때 이것이 의미하는 바는
+<!-- Resolves views selected for rendering by @Controllers to .jsp resources in the /WEB-INF/views directory -->
+<beans:bean class="org.springframework.web.servlet.view.InternalResourceViewResolver">
+	<beans:property name="prefix" value="/WEB-INF/views/" />
+	<beans:property name="suffix" value=".jsp" />
+</beans:bean>
+
+Controller 클래스의 home() 메소드가 아래와 같이 return "home";을 반환하면 
+prefix로 home앞에 /WEB-INF/views/를 덧붙인다. 이때 WEB-INF 앞의 /는 Web Root이다. 따라서 BasicSettings\BasicSettings\src\main\webapp\를 의미한다.
+suffix로 home 뒤에 .jsp를 덧붙이다. 따라서 /WEB-INF/views/home.jsp와 같이 되어 결국은 Web Root 아래의 WEB-INF 아래의 views 디렉토리 아래에서 home.jsp를 찾아서 실행한다는 뜻이다. 참고로 Spring의 경우 WEB-INF 아래의 소스 파일들(.jsp, .html ...)에는 브라우저 주소창에서 직접 url 입력하여 접근이 되지 않는다. 보안상의 이유 때문이다.
+
+	@RequestMapping(value = "/", method = RequestMethod.GET)
+	public String home(Locale locale, Model model) {
+		logger.info("Welcome home! The client locale is {}.", locale);
+		
+		Date date = new Date();
+		DateFormat dateFormat = DateFormat.getDateTimeInstance(DateFormat.LONG, DateFormat.LONG, locale);
+		String formattedDate = dateFormat.format(date);
+		model.addAttribute("serverTime", formattedDate );
+		
+		return "home";
+	}
+
+◆ Spring web.xml의 url 패턴의 의미. 예전에 url-pattern을 보통 *.do로 하기도 했다.
+	<servlet-mapping>
+		<servlet-name>appServlet</servlet-name>
+		<url-pattern>/</url-pattern>
+	</servlet-mapping>
+
+ㆍhttps://itmore.tistory.com/entry/%EC%8A%A4%ED%94%84%EB%A7%81-urlpattern-%EC%84%A4%EC%A0%95-%EC%99%80-%EC%B0%A8%EC%9D%B4%EC%97%90-%EB%8C%80%ED%95%9C-%EA%B0%9C%EB%85%90
+
+◆ Spring Project 개발환경 구축
+-. JDK 설치
+-. STS 설치
+-. WAS(Apache Tomcat) 설치
+-. STS에 Apache Tomcat 연동
+-. 하단 Server 탭에 Tomcat 서버 표시되도록 하기
+-. STS 인코딩을 UTF-8로 Font 크기, Theme 설정
+-. pom.xml을 열어 JDK 버전 변경(1.8 정도로)
+
+	<properties>
+		<java-version>1.8</java-version>
+		<org.springframework-version>4.3.9.RELEASE</org.springframework-version>
+		<org.aspectj-version>1.6.10</org.aspectj-version>
+		<org.slf4j-version>1.6.6</org.slf4j-version>
+	</properties>
+
+
+ㆍhttps://mingzz1.github.io/development/web/2020/02/18/spring-setting.html
+ㆍhttps://freestrokes.tistory.com/78
+
+◆ Mybatis 기본 설정
+-. D:\SpringModules\BasicSettings 프로젝트 참조
+
+[1] 간략
+  (0) pom.xml에 JDK 버전 변경(1.8로)
+  (1) pom.xml에 Mybatis 연동을 위한 library 추가
+  (2) roo-context.xml에 필요 Namespace 추가(aop, context, jdbc, mybatis-spring)
+  (3) DB와의 연결을 위해 root-context.xml에 DataSource 설정
+  (4) 설정한 DataSource 통해 Java - DB 연결 여부 테스트
+  (5) MyBatis와 DB(MySQL)을 연동시키기 
+     ① root-context.xml에 SqlSessionFactory bean 설정(객체 생성)
+     ② MyBatis 설정 파일을 src/main/resources/ 아래에 만든다(mybatis-config.xml로 파일명 지정. 다른 이름으로 지정해도 무방)
+     ③ MyBatis 설정 파일(mybatis-config.xml)이 스프링 구동시 같이 구동되도록 root-context.xml에 설정 값 추가
+     ④ src/main/resources/ 아래에 mppers 폴더를 만들어 둔다. 후헤 SQL 저장용 Mapper xml을 만들기 위해
+  (6) MyBatis와 DB(MySQL)의 연동 여부 테스트
+  (7) root-context.xml의 DB connection 정보를 Java에서 동적으로 환경설정 하는 법
+
+[2] 자세히 
+──────────────────
+  (0) pom.xml에 JDK 버전 변경(1.8로)
+	<properties>
+		<java-version>1.8</java-version>
+		<org.springframework-version>4.3.9.RELEASE</org.springframework-version>
+		<org.aspectj-version>1.6.10</org.aspectj-version>
+		<org.slf4j-version>1.6.6</org.slf4j-version>
+	</properties>
+
+       https://0jaeyoung.tistory.com/3 참조해서 프로젝트 전체를 1.8로 변경해야  jdbc, mybatis-spring을 사용가능함
+
+──────────────────
+  (1) pom.xml에 Mybatis 연동을 위한 library 추가
+		<!-- MySQL -->
+		<!-- https://mvnrepository.com/artifact/mysql/mysql-connector-java -->
+		<dependency>
+			<groupId>mysql</groupId>
+			<artifactId>mysql-connector-java</artifactId>
+			<version>5.1.46</version> <!-- 5.1.41로 하니까 DataSource connection 안됨 -->
+		</dependency>				
+				
+		<!-- Mybatis -->
+		<dependency>
+			<groupId>org.mybatis</groupId>
+			<artifactId>mybatis</artifactId>
+			<version>3.4.1</version>  <!-- 3.4.1 // 3.3.1 -->
+		</dependency>
+		
+		<!-- Mybatis Spring -->
+		<dependency>
+			<groupId>org.mybatis</groupId>
+			<artifactId>mybatis-spring</artifactId>
+			<version>1.3.0</version>  <!-- 1.3.0 // 1.2.4 -->
+		</dependency>
+				
+		<!-- Spring-JDBC -->
+		<dependency>
+			<groupId>org.springframework</groupId>
+			<artifactId>spring-jdbc</artifactId>
+			<version>${org.springframework-version}</version>
+		</dependency>
+				
+		<!-- common-dbcp -->
+		<dependency>
+			<groupId>org.apache.commons</groupId>
+			<artifactId>commons-dbcp2</artifactId>
+			<version>2.7.0</version>
+		</dependency>
+				
+──────────────────
+  (2) root-context.xml에 필요 Namespace 추가(aop, context, jdbc, mybatis-spring)
+
+──────────────────
+  (3) DB와의 연결을 위해 root-context.xml에 DataSource 설정
+<bean id="dataSource" class="org.springframework.jdbc.datasource.DriverManagerDataSource">
+   <property name="driverClassName"  value="com.mysql.jdbc.Driver"></property>
+   <property name="url" value="jdbc:mysql://localhost:3306/book_ex2?useSSL=false"></property>
+   <property name="username" value="zerock"></property>
+   <property name="password" value="zerock"></property>  
+</bean>
+
+──────────────────
+  (4) 설정한 DataSource 통해 Java - DB 연결 여부 테스트
+	import java.sql.Connection;
+	import javax.sql.DataSource;
+
+	@Autowired
+	private DataSource ds;
+
+	Connection con = null;
+		
+	try {
+		con = ds.getConnection();
+	}catch(SQLException se) {
+		se.printStackTrace();
+	}
+		
+	if(con == null) {
+		model.addAttribute("dbCon", "DB 연결 실패");	
+	}else {
+		model.addAttribute("dbCon", "DB 연결 성공");
+	}
+
+──────────────────
+  (5) MyBatis와 DB(MySQL)을 연동시키기
+     ① root-context.xml에 SqlSessionFactory bean 설정(생성)
+	<bean id="sqlSessionFactory" class="org.mybatis.spring.SqlSessionFactoryBean">
+		<property name="dataSource" ref="dataSource"/>
+		<!-- src/main/resources/아래에 mybatis-config.xml라는 파일이 생성되어 있지 않으면 아래 설정에서 에러 발생 -->
+		<property name="configLocation" value="classpath:/mybatis-config.xml"></property>
+		<!-- src/main/resources/아래에 mappers라는 폴더가 생성되어 있지 않으면 아래 설정에서 에러 발생 -->
+		<property name="mapperLocations" value="classpath:mappers/**/*Mapper.xml"></property>
+	</bean>
+
+     ② MyBatis 설정 파일을 src/main/resources/ 아래에 만든다(mybatis-config.xml라는 파일명으로)
+         <?xml version="1.0" encoding="UTF-8"?>
+         <!DOCTYPE configuration
+          PUBLIC "-//mybatis.org//DTD Config 3.0//EN"
+          "http://mybatis.org/dtd/mybatis-3-config.dtd">
+          <configuration>
+    
+          </configuration>
+
+     ③ MyBatis 설정 파일(mybatis-config.xml)이 스프링 구동시 같이 구동되도록 root-context.xml에 설정 값 추가
+              이건 필요 없다. 아래 sqlSessionFactory에 있다. ==> <property name="configLocation" value="classpath:/mybatis-config.xml"></property>속성에 mybatis-config.xml을 연결
+
+	<bean id="sqlSessionFactory" class="org.mybatis.spring.SqlSessionFactoryBean">
+		<property name="dataSource" ref="dataSource"/>
+		<!-- src/main/resources/아래에 mybatis-config.xml라는 파일이 생성되어 있지 않으면 아래 설정에서 에러 발생 -->
+		<property name="configLocation" value="classpath:/mybatis-config.xml"></property>
+		<!-- src/main/resources/아래에 mappers라는 폴더가 생성되어 있지 않으면 아래 설정에서 에러 발생 -->
+		<property name="mapperLocations" value="classpath:mappers/**/*Mapper.xml"></property>
+	</bean>
+
+	<!-- DAO 구현시 DB 연결관리를 편리하게 해주는 SqlSessionTemplate 클래스를 사용하기 위해 -->
+	<bean id="sqlSession" class="org.mybatis.spring.SqlSessionTemplate" destroy-method="clearCache">
+		<constructor-arg name="sqlSessionFactory" ref="sqlSessionFactory"></constructor-arg>
+	</bean>
+
+     ④ src/main/resources/ 아래에 mppers 폴더를 만들어 둔다. 후헤 SQL 저장용 Mapper xml을 만들기 위해
+
+──────────────────
+  (6) MyBatis와 DB(MySQL)의 연동 여부 테스트
+	import org.apache.ibatis.session.SqlSession;
+	import org.apache.ibatis.session.SqlSessionFactory;
+
+	@Autowired
+ 	private SqlSessionFactory sqlSessionFac;
+
+	//Mybatis-MySQL 연동 테스트 용
+	SqlSession session = sqlSessionFac.openSession();
+
+	if(session == null) {
+		model.addAttribute("mybatis", "MyBatis-DB 연결 실패");
+	} else {
+		model.addAttribute("mybatis", "MyBatis-DB 연결 성공");
+	}
+
+
+
+ㆍhttps://hanazuou.tistory.com/160
+ㆍhttps://codevang.tistory.com/249
+ㆍhttps://data-make.tistory.com/544
+ㆍhttps://jwkim96.tistory.com/62
+ㆍhttps://velog.io/@wimes/2.-%EA%B0%9C%EB%B0%9C%ED%99%98%EA%B2%BD%EC%84%A4%EC%A0%95-Spring-MyBatis-MySQL%EC%9D%98-%EC%84%A4%EC%A0%95-2zk4cf5gof
+
+(7) root-context.xml의 DB connection 정보를 Java에서 동적으로 환경설정 하는 법
+이에 대한 자세한 정보는 『◆ Mybatis Full 설정 및 Mybatis 기본 Frame 구축』의 『(9) root-context.xml의 DB connection 정보를 Java에서 동적으로 환경설정 하는 법』를 참조할 것
+참고로 root-context.xml의 완성된 형태는 아래와 같다. 
+
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xmlns:aop="http://www.springframework.org/schema/aop"
+	xmlns:context="http://www.springframework.org/schema/context"
+	xmlns:jdbc="http://www.springframework.org/schema/jdbc"
+	xmlns:mybatis-spring="http://mybatis.org/schema/mybatis-spring"
+	xsi:schemaLocation="http://www.springframework.org/schema/jdbc http://www.springframework.org/schema/jdbc/spring-jdbc-4.3.xsd
+		http://mybatis.org/schema/mybatis-spring http://mybatis.org/schema/mybatis-spring-1.2.xsd
+		http://www.springframework.org/schema/beans https://www.springframework.org/schema/beans/spring-beans.xsd
+		http://www.springframework.org/schema/context http://www.springframework.org/schema/context/spring-context-4.3.xsd
+		http://www.springframework.org/schema/aop http://www.springframework.org/schema/aop/spring-aop-4.3.xsd">
+	
+	<!-- Root Context: defines shared resources visible to all other web components -->
+		
+	<bean id="dataSourceSpied" class="org.springframework.jdbc.datasource.SimpleDriverDataSource">		
+	<!-- <bean id="dataSource" class="org.springframework.jdbc.datasource.DriverManagerDataSource"> --> 
+		<property name="driverClass"  value="com.mysql.jdbc.Driver"></property>
+	    <!-- <property name="driverClassName"  value="com.mysql.jdbc.Driver"></property> -->
+
+ 	   <!-- ▶▶▶▶▶ 배포용 : 배관블박 서버의  DB(2024.11.13 DB 서버를 능동형에서 배관 블박으로 변경 및 공인IP 통해 Port F/W으로 하던 방식을 내부 IP 방식으로 변경).  
+   	   <property name="url" value="jdbc:mysql://192.168.0.175:3306/wtinavi?useSSL=false&amp;autoReconnect=true&amp;allowMultiQueries=true"></property>
+	   <property name="username" value="root"></property>
+	   <property name="password" value="#(enict#("></property>  
+		-->
+		
+ 	   <!-- ◆◆◆◆◆  개발용 : 배관블박 서버의  DB(2024.11.13 DB 서버를 능동형에서 배관 블박으로 변경 및 공인IP 사용하는 방식 -> 개발단계에서 사용. ).   -->
+   	   <property name="url" value="jdbc:mysql://59.25.211.188:5603/wtinavi?useSSL=false&amp;autoReconnect=true&amp;allowMultiQueries=true"></property>
+	   <property name="username" value="root"></property>
+	   <property name="password" value="#(enict#("></property>  
+	    
+	    
+	    
+
+ 	   <!-- ▶ 능동형 물기술 서버의 Linux 실제 장비 실 DB(2023.10.20 WAS 서버와 DB 서버의 분리). 2024.11.13일 이 방식 종료  
+   	   <property name="url" value="jdbc:mysql://59.25.211.188:3305/wtinavi?useSSL=false&amp;autoReconnect=true&amp;allowMultiQueries=true"></property>
+	   <property name="username" value="root"></property>
+	   <property name="password" value="(!enict(!"></property>  
+	    -->
+	   
+ 	   <!-- 대구TP 서버의 Linux 실제 장비 실 DB : waterinavi   id: root / pw: @#enict@#	 
+   	   <property name="url" value="jdbc:mysql://59.25.211.188:3309/wtinavi?useSSL=false&amp;allowMultiQueries=true"></property>
+   	   <property name="url" value="jdbc:mysql://127.0.0.1:3306/wtinavi?useSSL=false&amp;allowMultiQueries=true"></property>
+	   <property name="username" value="dgeic"></property>
+	   <property name="password" value="&amp;*enict&amp;*"></property>  
+	    -->
+
+ 	   	<!-- Linux 실제 장비 실 DB : SmartValve(능동형 물기술) : 이상수질 DB 서버 분리시 성능 테스트 위해  	  
+	   	<property name="url" value="jdbc:mysql://192.168.0.173:3306/wtinavi?useSSL=false"></property>
+	   	<property name="username" value="root"></property>
+	   	<property name="password" value="(!enict(!"></property>  
+  		  -->         
+  		         
+ 	   <!-- Linux 실제 장비 실 DB : 대구TP   
+   	   <property name="url" value="jdbc:mysql://192.168.0.71:3306/dgeic?useSSL=false"></property>
+	   <property name="username" value="dgeic"></property>
+	   <property name="password" value="&amp;*enict&amp;*"></property>  
+		 -->
+		   		        
+	   <!-- 개발용 DB(dgeic_dv) : Linux 실제 장비  
+   	   <property name="url" value="jdbc:mysql://192.168.0.71:3306/dgeic_dv?useSSL=false"></property>
+	   <property name="username" value="dgeic"></property>
+	   <property name="password" value="&amp;*enict&amp;*"></property>  
+  		      	 -->  
+  		      	 
+	   <!-- Linux 실제 장비 현장실사용 구 old_dgeic
+	        scatterChart.jsp에서  아래와 같이 변경해 줘야 함
+	        fromDate = "2020-09-01"; 
+			toDate = "2020-09-30";       
+   	   <property name="url" value="jdbc:mysql://192.168.0.71:3306/old_dgeic?useSSL=false"></property>
+	   <property name="username" value="dgeic"></property>
+	   <property name="password" value="&amp;*enict&amp;*"></property>  
+	     -->  
+	</bean>
+		
+	<!-- 아래는 query 실행 로그를 출력하는데 필요함. DB connection관련 다른 정보는 AppConfig.java에서 했는데 이건 여기서 하는게 편함.
+		이에 대한 자세한 정보는 아래 소스에서 확인해 볼 것.
+		https://github.com/cmercer/log4jdbc/blob/master/src/main/java/net/sf/log4jdbc/Log4jdbcProxyDataSource.java
+		아래의 bean의 id는 dataSource로 정확히 명기해야 한다. 다른 이름으로 하면 에러 발생. 왜냐하면 위의 소스를 보면 확인할수 있다.
+	 -->	
+	<bean id="dataSource" class="net.sf.log4jdbc.Log4jdbcProxyDataSource"> 
+	    <constructor-arg ref="dataSourceSpied" /> 
+	    <property name="logFormatter"> 
+	        <bean class="net.sf.log4jdbc.tools.Log4JdbcCustomFormatter"> 
+	            <property name="loggingType" value="MULTI_LINE" /> 
+	            <property name="sqlPrefix" value="SQL : "/> 
+	        </bean> 
+	    </property> 
+	</bean>
+		
+	<bean id="sqlSessionFactory" class="org.mybatis.spring.SqlSessionFactoryBean">
+		<property name="dataSource" ref="dataSource"/>
+		<!-- src/main/resources/아래에 mybatis-config.xml라는 파일이 생성되어 있지 않으면 아래 설정에서 에러 발생 -->
+		<property name="configLocation" value="classpath:/mybatis-config.xml"></property>
+		<!-- src/main/resources/아래에 mappers라는 폴더가 생성되어 있지 않으면 아래 설정에서 에러 발생 -->
+		<property name="mapperLocations" value="classpath:mappers/**/*Mapper.xml"></property>
+	</bean>
+		
+	<!-- DAO 구현시 DB 연결관리를 편리하게 해주는 SqlSessionTemplate 클래스를 사용하기 위해 -->
+	<bean id="sqlSession" class="org.mybatis.spring.SqlSessionTemplate" destroy-method="clearCache">
+		<constructor-arg name="sqlSessionFactory" ref="sqlSessionFactory"></constructor-arg>
+	</bean>
+		
+
+        
+	<!-- *DAOImpl을 스프링의 빈으로 등록되도록 하기 위해서 -->
+	<context:component-scan base-package="com.enict.wtinavi"> 
+	</context:component-scan>		
+	
+	<!-- 이상수질 여부 체크하는 스케쥴러 -->
+	<!-- <context:component-scan base-package="com.enict.wtinavi.scheduller"/> -->
+    <!-- 해당 태그들은 크론탭 설정에 필요한 태그들 -->
+<!--     
+    <task:scheduler id="jobScheduler" pool-size="10" />
+    <task:annotation-driven scheduler="jobScheduler" />
+		
+ -->		
+</beans>
+
+
+◆ Mybatis Full 설정 및 Mybatis 기본 Frame 구축
+위 『◆ Mybatis 기본 설정』 상태에서 계속 진행하면 된다.
+[1] 간략
+  (1) 조작하게 될 대상이 테이블의 칼럼과 동일한 멤버 변수를 갖는 VO 객체 생성
+  (2) 실행해야 할 작업을 정의하는 DAO Interface 작성
+  (3) SQL을 저장할 XML Mapper 작성 (src/main/resources/mappers/memberMapper.xml)
+  (4) root-context.xml에 SqlSessionTemplate bean 설정(객체생성)
+  (5) 위 (2)에서 작성한 DAO interface의 구현 클래스 작성
+     ① 클래스명에 @Repository 어노테이션 추가
+     ② @Autowired로 SqlSession 객체 주입
+     ③ Mapper 정보 활용하여 필요한 DB작업(CRUD) 구현하기
+  (6) root-context.xml에 DAO interface 구현 클래스(@Repository 어노테이션 붙은 클래스)가 스캔되도록 설정 추가
+  (7) Controller 클래스 생성 및 필요한 DB 조작 작업하기
+  (8) RestController가 반환하는 String의 한글이 깨지지 않도록 하기 위해
+  (9) root-context.xml의 DB connection 정보를 Java에서 동적으로 환경설정 하는 법
+
+[2] 자세히 
+──────────────────
+  (1) 조작하게 될 대상이 되는 테이블의 칼럼과 동일한 VO 객체 생성
++------------+--------------+------+-----+-------------------+-------+
+| Field      | Type         | Null | Key | Default           | Extra |
++------------+--------------+------+-----+-------------------+-------+
+| userid     | varchar(50)  | NO   | PRI | NULL              |       |
+| userpw     | varchar(50)  | NO   |     | NULL              |       |
+| username   | varchar(50)  | NO   |     | NULL              |       |
+| email      | varchar(100) | YES  |     | NULL              |       |
+| regdate    | timestamp    | NO   |     | CURRENT_TIMESTAMP |       |
+| updatedate | timestamp    | NO   |     | CURRENT_TIMESTAMP |       |
++------------+--------------+------+-----+-------------------+-------+
+
+package com.joe.test.domain;
+
+public class MemberVO {
+	private String userid;    
+	private String userpw;
+	private String username;
+	private String email;
+	private Date regdate;
+	private Date updatedate;
+... getter, setter는 생략 ...
+}
+
+──────────────────
+  (2) 실행해야 할 작업을 정의하는 DAO Interface 작성
+package com.joe.test.persistence;
+
+public interface MemberDAO {
+//	public String getTime();
+//	public void insertMember(MemberVO vo);
+	public List<MemberVO> getMemberList();
+//	public void updateMember(MemberVO vo);
+//	public void deleteMember(String userid);
+}
+
+──────────────────
+  (3) SQL을 저장할 XML Mapper 작성 (src/main/resources/mappers/memberMapper.xml)
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+	PUBLIC "-//mybatis.org/DTD Mapper 3.0//EN"
+	"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+	<mapper namespace="com.joe.goodjob.JoeMemberMapper">
+		<select id="getTime" resultType="string">
+			SELECT NOW()
+		</select>
+		
+		<insert id="insertMember">
+			INSERT INTO tbl_member (userid, userpw, username, email)
+				VALUES(#{userid}, #{userpw}, #{username}, #{email})
+		</insert>
+		
+		<select id="getAllMember" resultType="com.joe.test.domain.MemberVO">
+			<![CDATA[
+				SELECT 
+					userid,
+					userpw,
+					username,
+					email,
+					regdate,
+					updatedate
+				FROM
+					tbl_member
+				ORDER BY regdate DESC
+			]]>
+		</select>
+	</mapper>
+
+──────────────────
+  (4) root-context.xml에 SqlSessionTemplate bean 설정(객체생성)
+SqlSessionTemplate은 mybatis-spring 라이브러리의 클래스로 다음을 처리해 주는 기능
+      -. 기본적인 트랜잭션의 관리
+      -. 쓰레드 처리의 안정성
+      -. DB 연결과 종료 작업 처리
+아래 내용을 추가해 준다.
+	<!-- DAO 구현시 DB 연결관리를 편리하게 해주는 SqlSessionTemplate 클래스를 사용하기 위해 -->
+	<bean id="sqlSession" class="org.mybatis.spring.SqlSessionTemplate" destroy-method="clearCache">
+		<constructor-arg name="sqlSessionFactory" ref="sqlSessionFactory"></constructor-arg>
+	</bean>
+
+완성된 형태는 아래와 같다.
+
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xmlns:aop="http://www.springframework.org/schema/aop"
+	xmlns:context="http://www.springframework.org/schema/context"
+	xmlns:jdbc="http://www.springframework.org/schema/jdbc"
+	xmlns:mybatis-spring="http://mybatis.org/schema/mybatis-spring"
+	xsi:schemaLocation="http://www.springframework.org/schema/jdbc http://www.springframework.org/schema/jdbc/spring-jdbc-4.3.xsd
+		http://mybatis.org/schema/mybatis-spring http://mybatis.org/schema/mybatis-spring-1.2.xsd
+		http://www.springframework.org/schema/beans https://www.springframework.org/schema/beans/spring-beans.xsd
+		http://www.springframework.org/schema/context http://www.springframework.org/schema/context/spring-context-4.3.xsd
+		http://www.springframework.org/schema/aop http://www.springframework.org/schema/aop/spring-aop-4.3.xsd">
+	
+	<!-- Root Context: defines shared resources visible to all other web components -->
+		
+	<bean id="dataSource" class="org.springframework.jdbc.datasource.DriverManagerDataSource">
+	   <property name="driverClassName"  value="com.mysql.jdbc.Driver"></property>
+	   <property name="url" value="jdbc:mysql://localhost:3306/book_ex2?useSSL=false"></property>
+	   <property name="username" value="zerock"></property>
+	   <property name="password" value="zerock"></property>  
+	</bean>
+		
+	<bean id="sqlSessionFactory" class="org.mybatis.spring.SqlSessionFactoryBean">
+		<property name="dataSource" ref="dataSource"/>
+		<!-- src/main/resources/아래에 mybatis-config.xml라는 파일이 생성되어 있지 않으면 아래 설정에서 에러 발생 -->
+		<property name="configLocation" value="classpath:/mybatis-config.xml"></property>
+		<!-- src/main/resources/아래에 mappers라는 폴더가 생성되어 있지 않으면 아래 설정에서 에러 발생 -->
+		<property name="mapperLocations" value="classpath:mappers/**/*Mapper.xml"></property>
+	</bean>
+	
+	<!-- DAO 구현시 DB 연결관리를 편리하게 해주는 SqlSessionTemplate 클래스를 사용하기 위해 -->
+	<bean id="sqlSession" class="org.mybatis.spring.SqlSessionTemplate" destroy-method="clearCache">
+		<constructor-arg name="sqlSessionFactory" ref="sqlSessionFactory"></constructor-arg>
+	</bean>
+</beans>
+
+──────────────────
+  (5) 위 (2)에서 작성한 DAO interface의 구현 클래스 작성
+     ① 클래스명에 @Repository 어노테이션 추가
+
+@Repository
+public class MemberDAOImpl implements MemberDAO {
+  ... 중략 ...
+}
+
+     ② @Autowired로 SqlSession 객체 주입
+
+@Repository
+public class MemberDAOImpl implements MemberDAO {
+	@Autowired
+	private SqlSession session;
+ ... 중략 ...	
+}
+     ③ Mapper 정보 활용하여 필요한 DB작업(CRUD) 구현하기
+
+package com.joe.test.persistence;
+
+import java.util.List;
+import org.apache.ibatis.session.SqlSession;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Repository;
+import com.joe.test.domain.MemberVO;
+
+@Repository
+public class MemberDAOImpl implements MemberDAO {
+	@Autowired
+	private SqlSession session;
+	
+	private static final String namespace = "com.joe.goodjob.JoeMemberMapper";
+	
+	@Override
+	public List<MemberVO> getMemberList(){
+		return session.selectList(namespace + ".getAllMember");
+	}
+}
+
+──────────────────
+  (6) root-context.xml에 DAO interface 구현 클래스(@Repository 어노테이션 붙은 클래스)가 스캔되도록 설정 추가
+기존 root-context.xml의 맨 마지막 부분에 아래 설정 값 추가
+	<!-- MemberDAOImpl을 스프링의 빈으로 등록되도록 하기 위해서 -->
+	<context:component-scan base-package="com.joe.test"> 
+	</context:component-scan>
+
+──────────────────
+  (7) Controller 클래스 생성 및 필요한 DB 조작 작업하기
+package com.joe.test;
+
+import java.util.List;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Controller;
+import org.springframework.ui.Model;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
+import com.joe.test.domain.MemberVO;
+import com.joe.test.persistence.MemberDAO;
+
+@Controller
+public class MybatisControl {
+	
+	@Autowired
+	private MemberDAO memDAO;
+	
+	@RequestMapping(value="allmember", method=RequestMethod.GET)
+	public String showAllMember(Model model) {
+		List<MemberVO> memList = memDAO.getMemberList();
+		System.out.println("모든 멤버: " + memList);
+		model.addAttribute("allMember", memList.toString());
+		return "homeMybatisFull";
+	}
+}
+
+──────────────────
+  (8) RestController가 반환하는 String의 한글이 깨지지 않도록 하기 위해
+WEB-INF/spring/appServlet/servlet-context.xml안의 아래 항목을
+
+	<!-- Enables the Spring MVC @Controller programming model -->
+	<annotation-driven />
+
+아래와 같이 변경해 준다.
+
+	<!-- Enables the Spring MVC @Controller programming model -->
+	<annotation-driven>
+		<!-- 아래 message-converters를 통해 RestController가 반환하는 한글이 깨지지 않도록 한다. -->
+	    <message-converters>
+	        <beans:bean class="org.springframework.http.converter.StringHttpMessageConverter">
+	            <beans:property name="supportedMediaTypes">
+	                <beans:list>
+	                	<beans:value>text/html;charset=UTF-8</beans:value>
+	                </beans:list>
+	            </beans:property>
+	        </beans:bean>
+	    </message-converters>	
+	</annotation-driven>
+
+그리고 웹 페이지의 한글이 깨지지 않도록 하기 위해 web.xml에 아래 내용을 추가한다.
+
+	<filter>
+	  <filter-name>encoding</filter-name>
+	  <filter-class>org.springframework.web.filter.CharacterEncodingFilter</filter-class>
+	  <init-param>
+	   <param-name>encoding</param-name>
+	   <param-value>UTF-8</param-value>
+	  </init-param>
+	</filter>
+	
+	<filter-mapping>
+	  <filter-name>encoding</filter-name>
+	  <url-pattern>/*</url-pattern>
+	</filter-mapping>
+
+(9) root-context.xml의 DB connection 정보를 Java에서 동적으로 환경설정 하는 법
+▶ root-context.xml에서 Java단으로 DB 설정 변경하기
+
+Spring root-context.xml 통해 정적으로 DB connection 환경설정을 하던 것을 Java Annotation을 통해 동적으로 DB connection 설정하는 방법에 대한 것이다.
+이렇게 하게 된 계기는 개발단계에서는 개발 PC와 DB 서버의 네트워크가 public IP로 연결되어야만 하는데 운영 WAS와 DB 서버는 동일 내부 망에 물려 있기 때문에 WAS와 DB 서버의 N/W 연결방식으로 내부 IP 방식으로 하면 성능상 유리하기 때문에 이렇게 한다.
+기존에는 root-context.xml의 DB 설정 정보를 아래와 같이 번갈아 가면서 주석하는 방식으로 수동으로 처리했다. 배포때마다 잊지 않고 해야하는 번거로움이 있었다.
+
+<!-- ▶▶▶▶▶ 배포용 : 배관블박 서버의  DB(2024.11.13 DB 서버를 능동형에서 배관 블박으로 변경 및 공인IP 통해 Port F/W으로 하던 방식을 내부 IP 방식으로 변경).  
+<property name="url" value="jdbc:mysql://192.168.0.175:3306/wtinavi?useSSL=false&amp;autoReconnect=true&amp;allowMultiQueries=true"></property>
+<property name="username" value="root"></property>
+<property name="password" value="#(enict#("></property>  
+-->
+		
+<!-- ◆◆◆◆◆  개발용 : 배관블박 서버의  DB(2024.11.13 DB 서버를 능동형에서 배관 블박으로 변경 및 공인IP 사용하는 방식 -> 개발단계에서 사용. ).   -->
+<property name="url" value="jdbc:mysql://59.25.211.188:5603/wtinavi?useSSL=false&amp;autoReconnect=true&amp;allowMultiQueries=true"></property>
+<property name="username" value="root"></property>
+<property name="password" value="#(enict#("></property>  
+
+[1] root-context.xml의 Spring이 bean 생성을 위해 scan하는 범위 안에 있도록 package를 새로 생성
+	<context:component-scan base-package="com.enict.wtinavi"> 
+	</context:component-scan>		
+
+com.enict.wtinavi.controller
+com.enict.wtinavi.domain
+com.enict.wtinavi.persistence
+.....
+새로 Java단 환경설정용 package 생성
+
+com.enict.wtinavi.configuration
+
+위 패키지 아래에 AppConfig.java 파일 생성. 이 클래스에 @Configuration 어노테이션을 붙이면 Spring이 알아서 bean 객체 생성한다. 나머지 아래 AppConfig.java 소스 참조
+
+package com.enict.wtinavi.configuration;
+
+import java.net.InetAddress;
+
+import javax.sql.DataSource;
+
+import org.apache.ibatis.session.SqlSessionFactory;
+import org.mybatis.spring.SqlSessionFactoryBean;
+import org.mybatis.spring.SqlSessionTemplate;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
+
+@Configuration
+public class AppConfig {
+	private static final String MYBATIS_CONFIG = "classpath:/mybatis-config.xml";
+	private static final String MAPPER_LOCATIONS  = "classpath:mappers/**/*Mapper.xml";
+	
+	// DB connection bean
+	@Bean
+	public DataSource dataSourceSpied() throws Exception {
+		System.out.println("### Java에서 root-context.xml 설정함 > DB 연결관련 ");
+		
+		//IP가 뭐냐에 따라서(개발PC인지, 리눅스 운영 서버인지) DB 접속 url에 사용되는 IP를 동적으로 다르게 하기 위해서
+		String ip = "";
+		String hostName = "";
+		try {
+			//자신의 IP 확인
+			InetAddress myIp = InetAddress.getLocalHost();
+			ip = myIp.getHostAddress();
+			hostName = myIp.getHostName();
+			
+			System.out.println("### Java에서 root-context.xml 설정함 > DB 연결관련 ip : " + ip);
+			System.out.println("### Java에서 root-context.xml 설정함 > DB 연결관련 hosName : " + hostName);
+		}catch(Exception e) {
+			e.printStackTrace();
+		}
+
+		DriverManagerDataSource dataSource = new DriverManagerDataSource();
+		
+		//dataSource.setDriverClassName("com.mysql.cj.jdbc.Driver"); //이건 에러가 남. jdbc 버전이 이것과 안 맞아서 그런듯. 이 Driver가 더 최신임
+		dataSource.setDriverClassName("com.mysql.jdbc.Driver"); 
+		
+		/*
+		//System.getenv()는 OS(Windows, Linux...)의 DB_URL, DB_USERNAME, DB_PASSWORD와 같은 환경변수 값이 사전에 설정되어 있어야 함. 따라서 이 방법을 비추
+		//url을 아래와 같이 하면 url이 null이 됨
+		//String url = System.getenv("jdbc:mysql://59.25.211.188:5603/wtinavi?useSSL=false&amp;autoReconnect=true&amp;allowMultiQueries=true");
+		//String url = System.getenv("jdbc:mysql://59.25.211.188:5603/wtinavi");
+		//String username = System.getenv("root");
+		//String password = System.getenv("#(enict#(");
+		//System.out.println("### url : " + url);
+		
+		if(url != null) {
+			url += "?useSSL=false&amp;autoReconnect=true&amp;allowMultiQueries=true";
+		}else {
+			 throw new IllegalArgumentException("### Database URL is not set in environment variables!");
+		}
+		
+		System.out.println("############################ Java에서 root-context.xml 설정함 > DB 연결관련333");  
+		
+	    if (url == null || url.isEmpty()) {
+	        throw new IllegalArgumentException("Property 'url' must not be empty");
+	    }
+	    if (username == null || username.isEmpty()) {
+	        throw new IllegalArgumentException("Property 'username' must not be empty");
+	    }
+	    if (password == null || password.isEmpty()) {
+	        throw new IllegalArgumentException("Property 'password' must not be empty");
+	    }
+	    */
+	    
+		//현재 WAS로 사용하는 서버의 host name이 enict. DB 서버로 사용하는 배관블박은 blackbox, 능동형 서버는 enict2
+		if(hostName.contains("enict")) { //운영 서버의 host name이면
+			dataSource.setUrl("jdbc:mysql://192.168.0.175:3306/wtinavi?useSSL=false&amp;autoReconnect=true&amp;allowMultiQueries=true");
+		}else {
+			dataSource.setUrl("jdbc:mysql://59.25.211.188:5603/wtinavi?useSSL=false&amp;autoReconnect=true&amp;allowMultiQueries=true");
+		}
+		
+		dataSource.setUsername("root");
+		dataSource.setPassword("#(enict#(");
+		
+		System.out.println("####### dataSource.getUrl() : " + dataSource.getUrl());
+		
+		return dataSource;		
+	}
+	
+	
+	// Controller 등에서 사용할 SqlSessionFactory용 bean
+	@Bean
+	public SqlSessionFactory sqlSessionFactory(DataSource dataSource) throws Exception {
+		System.out.println("############################ Java에서 root-context.xml 설정함 > sqlSessionFactory");
+		
+		SqlSessionFactoryBean sqlSessionFactoryBean = new SqlSessionFactoryBean();
+		sqlSessionFactoryBean.setDataSource(dataSource);
+		
+		//Mybatis 설정 파일
+		sqlSessionFactoryBean.setConfigLocation(new PathMatchingResourcePatternResolver().getResource(MYBATIS_CONFIG));
+		
+		// Mapper 파일 경로
+		sqlSessionFactoryBean.setMapperLocations(new PathMatchingResourcePatternResolver().getResources(MAPPER_LOCATIONS));
+		
+		return sqlSessionFactoryBean.getObject();
+	} //sqlSessionFactory
+	
+	
+	@Bean
+	public SqlSessionTemplate sqlSessionTemplate(SqlSessionFactory sqlSessionFactory) {
+		return new SqlSessionTemplate(sqlSessionFactory);
+	}	
+}
+
+이렇게 작성한 후에 root-context.xml에서 아래 항목들을 삭제한다.
+
+	<bean id="dataSourceSpied" class="org.springframework.jdbc.datasource.SimpleDriverDataSource">		
+		<property name="driverClass"  value="com.mysql.jdbc.Driver"></property>
+
+ 	   <!-- ▶▶▶▶▶ 배포용 : 배관블박 서버의  DB(2024.11.13 DB 서버를 능동형에서 배관 블박으로 변경 및 공인IP 통해 Port F/W으로 하던 방식을 내부 IP 방식으로 변경).  
+   	   <property name="url" value="jdbc:mysql://192.168.0.175:3306/wtinavi?useSSL=false&amp;autoReconnect=true&amp;allowMultiQueries=true"></property>
+	   <property name="username" value="root"></property>
+	   <property name="password" value="#(enict#("></property>  
+		-->
+		
+ 	   <!-- ◆◆◆◆◆  개발용 : 배관블박 서버의  DB(2024.11.13 DB 서버를 능동형에서 배관 블박으로 변경 및 공인IP 사용하는 방식 -> 개발단계에서 사용. ).   -->
+   	   <property name="url" value="jdbc:mysql://59.25.211.188:5603/wtinavi?useSSL=false&amp;autoReconnect=true&amp;allowMultiQueries=true"></property>
+	   <property name="username" value="root"></property>
+	   <property name="password" value="#(enict#("></property>  
+	</bean>
+		
+	<bean id="sqlSessionFactory" class="org.mybatis.spring.SqlSessionFactoryBean">
+		<property name="dataSource" ref="dataSource"/>
+		<!-- src/main/resources/아래에 mybatis-config.xml라는 파일이 생성되어 있지 않으면 아래 설정에서 에러 발생 -->
+		<property name="configLocation" value="classpath:/mybatis-config.xml"></property>
+		<!-- src/main/resources/아래에 mappers라는 폴더가 생성되어 있지 않으면 아래 설정에서 에러 발생 -->
+		<property name="mapperLocations" value="classpath:mappers/**/*Mapper.xml"></property>
+	</bean>
+		
+	<!-- DAO 구현시 DB 연결관리를 편리하게 해주는 SqlSessionTemplate 클래스를 사용하기 위해 -->
+	<bean id="sqlSession" class="org.mybatis.spring.SqlSessionTemplate" destroy-method="clearCache">
+		<constructor-arg name="sqlSessionFactory" ref="sqlSessionFactory"></constructor-arg>
+	</bean>
+
+이제부터 DB connection을 동적으로 변경할수 있게 되었다. 
+아래는 root-context.xml에서 지우면 query 실행 로그를 콘솔 창에서 볼수가 없다. 
+
+	<bean id="dataSource" class="net.sf.log4jdbc.Log4jdbcProxyDataSource"> 
+	    <constructor-arg ref="dataSourceSpied" /> 
+	    <property name="logFormatter"> 
+	        <bean class="net.sf.log4jdbc.tools.Log4JdbcCustomFormatter"> 
+	            <property name="loggingType" value="MULTI_LINE" /> 
+	            <property name="sqlPrefix" value="SQL : "/> 
+	        </bean> 
+	    </property> 
+	</bean>
+
+최종 완성된 root-context.xml은 아래와 같다.
+
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xmlns:aop="http://www.springframework.org/schema/aop"
+	xmlns:context="http://www.springframework.org/schema/context"
+	xmlns:jdbc="http://www.springframework.org/schema/jdbc"
+	xmlns:mybatis-spring="http://mybatis.org/schema/mybatis-spring"
+	xsi:schemaLocation="http://www.springframework.org/schema/jdbc http://www.springframework.org/schema/jdbc/spring-jdbc-4.3.xsd
+		http://mybatis.org/schema/mybatis-spring http://mybatis.org/schema/mybatis-spring-1.2.xsd
+		http://www.springframework.org/schema/beans https://www.springframework.org/schema/beans/spring-beans.xsd
+		http://www.springframework.org/schema/context http://www.springframework.org/schema/context/spring-context-4.3.xsd
+		http://www.springframework.org/schema/aop http://www.springframework.org/schema/aop/spring-aop-4.3.xsd">
+	
+	<!-- Root Context: defines shared resources visible to all other web components -->
+	<!-- ▶▶▶▶▶ 아래에는 DB connection 정보 등이 설정되어 있었는데 Java단에서 동적으로 설정을 변경함  : 2024.12.17
+	  Java에서의 설정 정보는 AppConfig.java에 있음. 개발용PC인지 운영 서버인지에 따라서 DB connection url 값을 다르게 설정하기 위해 이렇게 처리함
+	  원래의 root-context.xml의 설정은 original_root_context.xml에 있음. 참고 바람 -->	
+		
+	<!-- 아래는 query 실행 로그를 출력하는데 필요함. DB connection관련 다른 정보는 AppConfig.java에서 했는데 이건 여기서 하는게 편함.
+		이에 대한 자세한 정보는 아래 소스에서 확인해 볼 것.
+		https://github.com/cmercer/log4jdbc/blob/master/src/main/java/net/sf/log4jdbc/Log4jdbcProxyDataSource.java
+		아래의 bean의 id는 dataSource로 정확히 명기해야 한다. 다른 이름으로 하면 에러 발생. 왜냐하면 위의 소스를 보면 확인할수 있다.
+	 -->	
+	<bean id="dataSource" class="net.sf.log4jdbc.Log4jdbcProxyDataSource"> 
+	    <constructor-arg ref="dataSourceSpied" /> 
+	    <property name="logFormatter"> 
+	        <bean class="net.sf.log4jdbc.tools.Log4JdbcCustomFormatter"> 
+	            <property name="loggingType" value="MULTI_LINE" /> 
+	            <property name="sqlPrefix" value="SQL : "/> 
+	        </bean> 
+	    </property> 
+	</bean>		
+		
+	<!-- *DAOImpl을 스프링의 빈으로 등록되도록 하기 위해서 -->
+	<context:component-scan base-package="com.enict.wtinavi"> 
+	</context:component-scan>		
+	
+	<!-- 이상수질 여부 체크하는 스케쥴러 -->
+	<!-- <context:component-scan base-package="com.enict.wtinavi.scheduller"/> -->
+    <!-- 해당 태그들은 크론탭 설정에 필요한 태그들 -->
+<!--     
+    <task:scheduler id="jobScheduler" pool-size="10" />
+    <task:annotation-driven scheduler="jobScheduler" />
+ -->		
+</beans>
+
+
+◆ MyBatis SQL Query 정보 로그로 출력하기 설정법
+[1] 간략
+ (1) pom.xml에 dependency 추가
+ (2) root-context.xml의 dataSource에 log4jdbc를 통해 SQL Query 실행 로그를 출력하도록 설정
+ (3) log4j.xml에 sql query 정보 출력할 내용 설정
+
+[2] 자세히
+──────────────────
+ (1) pom.xml에 dependency 추가
+아래 dependency 추가
+
+<!-- Sql Log -->
+<dependency>
+    <groupId>org.lazyluke</groupId>
+    <artifactId>log4jdbc-remix</artifactId>
+    <version>0.2.7</version>
+</dependency>
+
+──────────────────
+ (2) root-context.xml의 dataSource에 log4jdbc를 통해 SQL Query 실행 로그를 출력하도록 설정
+	<bean id="dataSource" class="org.springframework.jdbc.datasource.DriverManagerDataSource"> 
+	   <property name="driverClassName"  value="com.mysql.jdbc.Driver"></property>
+ 	   <property name="url" value="jdbc:mysql://192.168.0.xx:3306/dgeic?useSSL=false"></property>
+	   <property name="username" value="dgeic"></property>
+	   <property name="password" value="&amp;*enict&amp;*"></property>  
+	</bean>
+
+위 설정 값을 아래와 같이 변경한다.
+
+	<bean id="dataSourceSpied" class="org.springframework.jdbc.datasource.SimpleDriverDataSource">		
+ 	   <property name="driverClass"  value="com.mysql.jdbc.Driver"></property>
+ 	   <property name="url" value="jdbc:mysql://192.168.0.xx:3306/dgeic?useSSL=false"></property>
+	   <property name="username" value="dgeic"></property>
+	   <property name="password" value="&amp;*enict&amp;*"></property>  
+	</bean>
+
+위 설정 값 바로 밑이 아래 내용 추가
+		
+	<bean id="dataSource" class="net.sf.log4jdbc.Log4jdbcProxyDataSource"> 
+	    <constructor-arg ref="dataSourceSpied" /> 
+	    <property name="logFormatter"> 
+	        <bean class="net.sf.log4jdbc.tools.Log4JdbcCustomFormatter"> 
+	            <property name="loggingType" value="MULTI_LINE" /> 
+	            <property name="sqlPrefix" value="SQL : "/> 
+	        </bean> 
+	    </property> 
+	</bean>
+
+──────────────────
+ (3) log4j.xml에 sql query 정보 출력할 내용 설정
+src/main/resources/log4j.xml 파일 안에 기존 있던 내용 밑에 아래 내용을 추가한다. 
+
+	<!-- SQL Logger -->
+	<!--  SQL문과 해당 SQL을 실행시키는데 수행된 시간 정보(milliseconds) -->
+	<logger name="jdbc.sqltiming" additivity="false">
+	    <level value="info" /> <!-- {executed in 7 msec}과 같이 실행 소요 시간 출력. 쿼리 성능 비교 테스트시 요긴함 -->
+	    <appender-ref ref="console"/> 
+	</logger>
+	<!--  SQL 쿼리 문장 -->
+	<logger name="jdbc.sqlonly" additivity="false"> 
+	    <level value="info"/> 
+	    <appender-ref ref="console"/> 
+	</logger>
+	 
+	<!--  ResultSet을 제외한 모든 JDBC 호출 정보 -->
+	<logger name="jdbc.audit" additivity="false"> 
+	    <level value="warn"/>  
+	    <appender-ref ref="console"/> 
+	</logger> 
+	 
+	<!--  ResultSet을 포함한 모든 JDBC 호출 정보 -->
+	<logger name="jdbc.resultset" additivity="false">
+	    <level value="warn" />  <!-- warn을 info로 바꾸면 DB 조회 결과도 출력됨 -->
+	    <appender-ref ref="console"/> 
+	</logger>
+	 
+	<!-- SQL 결과 조회된 데이터의 table을 로그 -->
+	<logger name="jdbc.resultsettable" additivity="false"> 
+	    <level value="info"/>  <!-- warn을 info로 바꾸면 DB 조회 결과도 출력됨(테이블 형태로) -->
+	    <appender-ref ref="console"/> 
+	</logger> 
+
+
+◆ 게시판 기능을 위해 필요한 DB Query 모음
+create table tbl_member (
+  userid varchar(50) not null, 
+  userpw varchar(50) not null,
+  username varchar(50) not null,
+  email varchar(100),
+  regdate timestamp default now(),
+  updatedate timestamp default now(),
+  primary key(userid)
+);
+
+
+CREATE TABLE tbl_board (
+   bno INT NOT NULL AUTO_INCREMENT,
+   title VARCHAR(200) NOT NULL,
+   content TEXT NULL,
+   writer VARCHAR(50) NOT NULL,
+   regdate TIMESTAMP NOT NULL DEFAULT now(),
+   viewcnt INT DEFAULT 0,
+   PRIMARY KEY (bno));
+
+
+create table tbl_reply (
+ rno int NOT NULL AUTO_INCREMENT,
+ bno int not null default 0,
+ replytext varchar(1000) not null, 
+ replyer varchar(50)  not null, 
+ regdate TIMESTAMP NOT NULL DEFAULT now(),
+ updatedate TIMESTAMP NOT NULL DEFAULT now(),
+ primary key(rno)
+);
+
+alter table tbl_reply add constraint fk_board 
+foreign key (bno) references tbl_board (bno);
+
+
+create table tbl_user ( 
+ uid varchar(50) NOT NULL, 
+ upw varchar(50) NOT NULL,
+ uname varchar(100) NOT NULL,
+ upoint int NOT NULL DEFAULT 0,
+ primary key(uid)
+);
+
+
+insert into tbl_user(uid, upw, uname) values ('user00','user00','IRON MAN');
+insert into tbl_user(uid, upw, uname) values ('user01','user01','CAPTAIN');
+insert into tbl_user(uid, upw, uname) values ('user02','user02','HULK');
+insert into tbl_user(uid, upw, uname) values ('user03','user03','Thor');
+insert into tbl_user(uid, upw, uname) values ('user10','user10','Quick Silver');
+
+
+create table tbl_message (
+ mid int not null auto_increment,
+ targetid varchar(50) not null, 
+ sender varchar(50) not null, 
+ message text not null,
+ opendate timestamp,
+ senddate timestamp not null default now(),
+ primary key(mid)
+);
+
+
+alter table tbl_message add constraint fk_usertarget 
+foreign key (targetid) references tbl_user (uid); 
+
+alter table tbl_message add constraint fk_usersender 
+foreign key (sender) references tbl_user (uid); 
+
+
+alter table tbl_board add column replycnt int default 0;
+
+
+create table tbl_attach (
+  fullName varchar(150) not null,
+  bno int not null,
+  regdate timestamp default now(),
+  primary key(fullName)
+);
+
+
+alter table tbl_attach add constraint fk_board_attach 
+foreign key (bno) references tbl_board (bno);
+
+
+alter table tbl_user add column 
+  sessionkey varchar(50) not null default 'none';
+  
+alter table tbl_user 
+  add column sessionlimit timestamp;
+  
+
+◆ Spring 게시판 기본 제작하기(pagination 제외)
+위 『◆ Mybatis Full 설정 및 Mybatis 기본 Frame 구축』 상태에서 계속 진행하면 된다.
+[1] 간략
+  (1) 게시판용 테이블 제작
+  (2) 게시판 CRUD용 SQL 제작
+  (3) BoardVO 제작
+  (4) BoardDAO 생성
+  (5) BoardDAO 구현 클래스 BoadrDAOImpl 제작
+  (6) BoardService, BoardServiceImpl 제작
+  (7) 게시판 글 등록 구현을 위한 Controller 클래스 제작
+  (8) 부트스트랩 파일 복사할 경로(위치)
+  (9) 각 view용 .jsp에서 사용할 header.jsp 제작
+  (10) 각 view용 .jsp에서 사용할 footer.jsp 제작
+  (11) header.jsp, footer.jsp 파일을 복사할 경로(위치)
+  (12) 게시판 글 등록을 위한 view의 구현
+  (13) 글 등록 후 글 목록 보여주기 위한 Controller 제작
+  (14) 글 전체 목록을 보여 줄 view단 listAll.jsp를 제작(글 각 목록에 대한 링크 처리 포함)
+  (15) 글 목록 클릭시 글 내용 조회용 Controller 제작
+  (16) 글 목록 클릭시 글 내용 조회용 view read.jsp 작성
+  (17) 글 삭제 처리를 위한 Controller 제작
+  (18) 글 수정 처리를 위한 Controller 제작
+  (19) 사용자가 글 내용을 수정할 modify.jsp 제작
+  (20) 게시판 글 DB에 저장시 한글 깨지지 않도록 web.xml 설정
+
+[2] 자세히 
+──────────────────
+  (1) 게시판용 테이블 제작
+CREATE TABLE tbl_board (
+	bno INT NOT NULL AUTO_INCREMENT,
+	title VARCHAR(200) NOT NULL DEFAULT '',
+	content TEXT NULL,
+	writer VARCHAR(50) NOT NULL DEFAULT '',
+	regdate TIMESTAMP NOT NULL DEFAULT NOW(),
+	viewcnt INT DEFAULT 0,
+	PRIMARY KEY(bno)
+);
+
+──────────────────
+  (2) 게시판 CRUD용 SQL 제작
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<!-- 
+XML mapper에서 #{}가 적용되는 규칙
+ 1) 파라미터가 bean 객체인 경우는 #{num}은 bean 클래스의 getNum(), setNum()에 의해 #{num}의 값이 할당된다.
+ 2) #{}의 갯수가 하나이고 기본자료형이나 문자열인 경우는 값이 그대로 1:1 대응으로 전달된다.
+ 3) 파라미터가 Map 타입인 경우 #{num}은 Map 객체의 key 값이 'num'인 값을 찾는다.  
+ -->
+<mapper namespace="org.zerock.mapper.BoardMapper">
+	<insert id="create">
+		insert into tbl_board(title, content, writer)
+		values(#{title}, #{content}, #{writer})
+	</insert>
+	
+	<select id="read" resultType="org.zerock.domain.BoardVO">
+		select
+			bno, title, content, writer, regdate, viewcnt
+		from
+			tbl_board
+		where bno = #{bno}
+	</select>
+	
+	<update id="update">
+		update tbl_board set title=#{title}, content=#{content}
+		where bno=#{bno}
+	</update>
+	
+	<delete id="delete">
+		delete from tbl_board where bno=#{bno}
+	</delete>
+	
+	<select id="listAll" resultType="org.zerock.domain.BoardVO">
+		<![CDATA[
+			select
+				bno, title, content, writer, regdate, viewcnt
+			from
+				tbl_board
+			where bno > 0
+			order by bno desc, regdate desc
+		]]>
+	</select>
+</mapper>
+
+──────────────────
+  (3) BoardVO 제작
+	private Integer bno;
+	private String title;
+	private String content;
+	private String writer;
+	private Date regdate;
+	private int viewCnt;
+
+──────────────────
+  (4) BoardDAO 생성
+	public void create(BoardVO vo)throws Exception;
+	public BoardVO read(Integer bno) throws Exception;
+	public void update(BoardVO vo) throws Exception;
+	public void delete(Integer bno) throws Exception;
+	public List<BoardVO> listAll() throws Exception;
+
+//@Repository는 해당 클래스가 DB에 접근하는 클래스임을 명시
+//@Repository 어노테이션은 DAO를 스프링에 인식시키기 위해서 주로 사용
+@Repository
+public class BoardDAOImpl implements BoardDAO {
+	@Inject
+	private SqlSession session;
+	private static String namespace = "org.zerock.mapper.BoardMapper";
+	
+	@Override
+	public void create(BoardVO vo) throws Exception {
+		session.insert(namespace + ".create", vo);
+	}
+	
+	@Override
+	public BoardVO read(Integer bno) throws Exception {
+		return session.selectOne(namespace + ".read", bno);
+	}
+	
+	@Override
+	public void update(BoardVO vo) throws Exception {
+		session.update(namespace + ".update", vo);
+	}
+	
+	@Override
+	public void delete(Integer bno) throws Exception {
+		session.delete(namespace + ".delete", bno);
+	}
+
+	@Override
+	public List<BoardVO> listAll() throws Exception {
+		return session.selectList(namespace + ".listAll");
+	}
+}
+
+──────────────────
+  (6) BoardService, BoardServiceImpl 제작
+package com.joe.my.service;
+
+import java.util.List;
+
+import com.joe.my.domain.BoardVO;
+
+public interface BoardService {
+
+	public void regist(BoardVO vo) throws Exception;
+	public BoardVO read(Integer bno) throws Exception;
+	public void modify(BoardVO vo) throws Exception;
+	public void remove(Integer bno) throws Exception;
+	public List<BoardVO> listAll() throws Exception;
+
+}
+
+
+package com.joe.my.service;
+
+import java.util.List;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import com.joe.my.domain.BoardVO;
+import com.joe.my.persistence.BoardDAO;
+
+@Service  //Spring bean으로 인식되도록 하기 위해
+public class BoardServiceImpl implements BoardService{
+	@Autowired
+	private BoardDAO bdDao;
+	
+	@Override
+	public void regist(BoardVO vo) throws Exception {
+		// TODO Auto-generated method stub
+		
+		bdDao.create(vo);
+	}
+
+	@Override
+	public BoardVO read(Integer bno) throws Exception {
+		// TODO Auto-generated method stub
+		
+		return bdDao.read(bno);
+	}
+
+	@Override
+	public void modify(BoardVO vo) throws Exception {
+		// TODO Auto-generated method stub
+		
+		bdDao.update(vo);
+	}
+
+	@Override
+	public void remove(Integer bno) throws Exception {
+		// TODO Auto-generated method stub
+		
+		bdDao.delete(bno);
+	}
+
+	@Override
+	public List<BoardVO> listAll() throws Exception {
+		// TODO Auto-generated method stub
+		
+		return bdDao.listAll();
+	}
+}
+
+
+──────────────────
+  (7) 게시판 글 등록 구현을 위한 Controller 클래스 제작
+package org.zerock.controller;
+
+import javax.inject.Inject;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Controller;
+import org.springframework.ui.Model;
+import org.springframework.web.bind.annotation.ModelAttribute;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.servlet.mvc.support.RedirectAttributes;
+import org.zerock.domain.BoardVO;
+import org.zerock.domain.Criteria;
+import org.zerock.domain.PageMaker;
+import org.zerock.service.BoardService;
+
+//아래 RequestMapping이 의미하는 것은 /board/로 시작하고 그 하위 경로가 무엇이든지간에 
+//이 컨트롤 클래스로 넘어 온다는 뜻
+@Controller
+@RequestMapping("/board/*")
+public class BoardController {
+	private static final Logger logger = LoggerFactory.getLogger(BoardController.class);
+	
+	@Inject
+	private BoardService service; //DB에 CRUD하는 기능을 제공하는 서비스
+	
+	//아래 메소드는 http://localhost:8181/board/register로 접속시 호출되는 메소드
+	//아래 RequestMapping이 의미하는 것은 url이  host:port/board/register/로 요청될때 여기로 들어옴
+	@RequestMapping(value = "/register", method = RequestMethod.GET)
+	public void registGET(BoardVO board, Model model) throws Exception 
+	{
+		//아래 코드에서 출력되는 로그는
+		//INFO : ...전략...register get ...........BoardVO [bno=null, title=null, content=null, 
+		//          write=null, regdate=null, viewcnt=0]
+		logger.info("register get ..........."+board.toString());
+		//아래 코드 없이도 /board/register.jsp를 어떻게 잘 찾아가지? 그 원리가 뭐지?
+		// registerGET() 메소드가 없으면 http://localhost:8181/board/register 접속시 
+		//404 not found 에러가 발생해서 register.jsp를 실행을 못한다.
+		//원리가 뭐지? 당연히 아래 코드가 있어도 역시 정상적으로 register.jsp를 실행을 한다.
+		//원리는 이렇게 동작하는 것 같다. return을 명시적으로 하지 않으면 @RequestMapping의 value에서
+		//지정한 값인 register.jsp를 /board/register.jsp와 같이 자동으로 찾아서 실행하는 것 같다.
+		//그런데 만일 http://localhost:8181/board/success로 직접 접속하면 404 not found 에러가 발생한다.
+		//비록 WEB-INF/views/board/success.jsp가 존재하더라도 @RequestMapping으로 success를 지정한
+		//컨트롤러 메소드가 없으면 해당 파일이 해당 경로에 존재하더라도 404 not found 에러가 발생한다.
+		//순수 jsp의 경우는 이런 경우 접속이 가능한데 이런 점에서 Spring은 보안이 훨씬 좋구나.  
+//		return "/board/register"; 
+	}
+	
+	//아래 매핑 컨트롤러 메소드를 만든 것은 http://localhost:8181/board/success로 막바로 접속이
+	//안되기 때문에 개발 단계에서 success.jsp의 레이아웃이 정상적으로 잘 되고 있는 브라우저에서 확인하기 위한
+	//목적에서 만든 컨트롤러 메소드이다.
+	//개발 목적이 완료되면 아래 메소드는 주석 처리 할 것
+//	@RequestMapping(value = "/success", method=RequestMethod.GET)
+//	public void mySuccess()
+//	{
+//		logger.info("Hey mySuccess()임~~");
+//	}
+	
+	
+	@RequestMapping(value = "/register", method = RequestMethod.POST)
+//	public String registPOST(BoardVO board, Model model) throws Exception
+	public String registPOST(BoardVO board, RedirectAttributes rttr) throws Exception
+	{
+		logger.info("register post ............");
+		
+		service.regist(board);
+		
+		//아래 코드를 통해서 전체 목록 보여주는 url 주소 창에 아래와 같이 msg=SUCCESS가 표시되게 한다.
+		//아래 model.addAttribute()가 없으면 url 주소 창에 msg=SUCCESS가 표시되지 않는다.
+		//http://localhost:8181/board/listAll?msg=SUCCESS
+//		model.addAttribute("msg", "SUCCESS");
+		
+		rttr.addFlashAttribute("msg", "SUCCESS");
+		
+//		return "/board/success"; //WEB-INF/views/board/success.jsp를 찾아서 실행한다.
+		return "redirect:/board/listAll";
+	}
+}
+
+──────────────────
+  (8) 부트스트랩 파일 복사할 경로(위치)
+     /webapp/resources/ 폴더 아래에 아래의 모든 폴더와 그 하위 파일들을 그대로 복사해 두면 부트 스트랩과 header.jsp, footer.jsp와 그대로 연동이 된다.
+     /bootstrap/*.*
+     /dist/*.*
+     /plugins/*.*
+
+──────────────────
+  (9) 각 view용 .jsp에서 사용할 header.jsp 제작 (/webapp/WEB-INF/views/include/ 폴더 아래에 복사)
+    이 부분은 각 프로젝트들 마다 상이하기 때문에 디자이너, 퍼블리셔와 상의해서 제작. 
+    아래는 bootstrap을 사용하는 용도로 만들어진 header.jsp이다.
+
+<%@ page language="java" contentType="text/html; charset=UTF-8"
+    pageEncoding="UTF-8"%>
+   
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8">
+    <title>AdminLTE 2 | Dashboard</title>
+    <meta content='width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no' name='viewport'>
+    <!-- Bootstrap 3.3.4 -->
+    <link href="/resources/bootstrap/css/bootstrap.min.css" rel="stylesheet" type="text/css" />
+    <!-- Font Awesome Icons -->
+    <link href="https://maxcdn.bootstrapcdn.com/font-awesome/4.3.0/css/font-awesome.min.css" rel="stylesheet" type="text/css" />
+    <!-- Ionicons -->
+    <link href="https://code.ionicframework.com/ionicons/2.0.1/css/ionicons.min.css" rel="stylesheet" type="text/css" />
+    <!-- Theme style -->
+    <link href="/resources/dist/css/AdminLTE.min.css" rel="stylesheet" type="text/css" />
+    <!-- AdminLTE Skins. Choose a skin from the css/skins 
+         folder instead of downloading all of them to reduce the load. -->
+    <link href="/resources/dist/css/skins/_all-skins.min.css" rel="stylesheet" type="text/css" />
+
+    <!-- HTML5 Shim and Respond.js IE8 support of HTML5 elements and media queries -->
+    <!-- WARNING: Respond.js doesn't work if you view the page via file:// -->
+    <!--[if lt IE 9]>
+        <script src="https://oss.maxcdn.com/html5shiv/3.7.2/html5shiv.min.js"></script>
+        <script src="https://oss.maxcdn.com/respond/1.4.2/respond.min.js"></script>
+    <![endif]-->
+    
+  </head>
+      <!-- jQuery 2.1.4 -->
+    <script src="/resources/plugins/jQuery/jQuery-2.1.4.min.js"></script>
+  <body class="skin-blue sidebar-mini">
+    <div class="wrapper">
+      
+      <header class="main-header">
+        <!-- Logo -->
+        <a href="/resources/index2.html" class="logo">
+          <!-- mini logo for sidebar mini 50x50 pixels -->
+          <span class="logo-mini"><b>A</b>LT</span>
+          <!-- logo for regular state and mobile devices -->
+          <span class="logo-lg"><b>JOE 게시판</b> PROJECT</span>
+        </a>
+        <!-- Header Navbar: style can be found in header.less -->
+        <nav class="navbar navbar-static-top" role="navigation">
+          <!-- Sidebar toggle button-->
+          <a href="#" class="sidebar-toggle" data-toggle="offcanvas" role="button">
+            <span class="sr-only">Toggle navigation</span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <div class="navbar-custom-menu">
+            <ul class="nav navbar-nav">
+              <!-- Messages: style can be found in dropdown.less-->
+              <li class="dropdown messages-menu">
+                <a href="#" class="dropdown-toggle" data-toggle="dropdown">
+                  <i class="fa fa-envelope-o"></i>
+                  <span class="label label-success">4</span>
+                </a>
+                <ul class="dropdown-menu">
+                  <li class="header">You have 4 messages</li>
+                  <li>
+                    <!-- inner menu: contains the actual data -->
+                    <ul class="menu">
+                      <li><!-- start message -->
+                        <a href="#">
+                          <div class="pull-left">
+                            <img src="/resources/dist/img/user7-128x128.jpg" class="img-circle" alt="User Image"/>
+                          </div>
+                          <h4>
+                            Support Team
+                            <small><i class="fa fa-clock-o"></i> 5 mins</small>
+                          </h4>
+                          <p>Why not buy a new awesome theme?</p>
+                        </a>
+                      </li><!-- end message -->
+                      <li>
+                        <a href="#">
+                          <div class="pull-left">
+                            <img src="/resources/dist/img/user3-128x128.jpg" class="img-circle" alt="user image"/>
+                          </div>
+                          <h4>
+                            AdminLTE Design Team
+                            <small><i class="fa fa-clock-o"></i> 2 hours</small>
+                          </h4>
+                          <p>Why not buy a new awesome theme?</p>
+                        </a>
+                      </li>
+                      <li>
+                        <a href="#">
+                          <div class="pull-left">
+                            <img src="/resources/dist/img/user4-128x128.jpg" class="img-circle" alt="user image"/>
+                          </div>
+                          <h4>
+                            Developers
+                            <small><i class="fa fa-clock-o"></i> Today</small>
+                          </h4>
+                          <p>Why not buy a new awesome theme?</p>
+                        </a>
+                      </li>
+                      <li>
+                        <a href="#">
+                          <div class="pull-left">
+                            <img src="/resources/dist/img/user3-128x128.jpg" class="img-circle" alt="user image"/>
+                          </div>
+                          <h4>
+                            Sales Department
+                            <small><i class="fa fa-clock-o"></i> Yesterday</small>
+                          </h4>
+                          <p>Why not buy a new awesome theme?</p>
+                        </a>
+                      </li>
+                      <li>
+                        <a href="#">
+                          <div class="pull-left">
+                            <img src="/resources/dist/img/user4-128x128.jpg" class="img-circle" alt="user image"/>
+                          </div>
+                          <h4>
+                            Reviewers
+                            <small><i class="fa fa-clock-o"></i> 2 days</small>
+                          </h4>
+                          <p>Why not buy a new awesome theme?</p>
+                        </a>
+                      </li>
+                    </ul>
+                  </li>
+                  <li class="footer"><a href="#">See All Messages</a></li>
+                </ul>
+              </li>
+              <!-- Notifications: style can be found in dropdown.less -->
+              <li class="dropdown notifications-menu">
+                <a href="#" class="dropdown-toggle" data-toggle="dropdown">
+                  <i class="fa fa-bell-o"></i>
+                  <span class="label label-warning">10</span>
+                </a>
+                <ul class="dropdown-menu">
+                  <li class="header">You have 10 notifications</li>
+                  <li>
+                    <!-- inner menu: contains the actual data -->
+                    <ul class="menu">
+                      <li>
+                        <a href="#">
+                          <i class="fa fa-users text-aqua"></i> 5 new members joined today
+                        </a>
+                      </li>
+                      <li>
+                        <a href="#">
+                          <i class="fa fa-warning text-yellow"></i> Very long description here that may not fit into the page and may cause design problems
+                        </a>
+                      </li>
+                      <li>
+                        <a href="#">
+                          <i class="fa fa-users text-red"></i> 5 new members joined
+                        </a>
+                      </li>
+
+                      <li>
+                        <a href="#">
+                          <i class="fa fa-shopping-cart text-green"></i> 25 sales made
+                        </a>
+                      </li>
+                      <li>
+                        <a href="#">
+                          <i class="fa fa-user text-red"></i> You changed your username
+                        </a>
+                      </li>
+                    </ul>
+                  </li>
+                  <li class="footer"><a href="#">View all</a></li>
+                </ul>
+              </li>
+              <!-- Tasks: style can be found in dropdown.less -->
+              <li class="dropdown tasks-menu">
+                <a href="#" class="dropdown-toggle" data-toggle="dropdown">
+                  <i class="fa fa-flag-o"></i>
+                  <span class="label label-danger">9</span>
+                </a>
+                <ul class="dropdown-menu">
+                  <li class="header">You have 9 tasks</li>
+                  <li>
+                    <!-- inner menu: contains the actual data -->
+                    <ul class="menu">
+                      <li><!-- Task item -->
+                        <a href="#">
+                          <h3>
+                            Design some buttons
+                            <small class="pull-right">20%</small>
+                          </h3>
+                          <div class="progress xs">
+                            <div class="progress-bar progress-bar-aqua" style="width: 20%" role="progressbar" aria-valuenow="20" aria-valuemin="0" aria-valuemax="100">
+                              <span class="sr-only">20% Complete</span>
+                            </div>
+                          </div>
+                        </a>
+                      </li><!-- end task item -->
+                      <li><!-- Task item -->
+                        <a href="#">
+                          <h3>
+                            Create a nice theme
+                            <small class="pull-right">40%</small>
+                          </h3>
+                          <div class="progress xs">
+                            <div class="progress-bar progress-bar-green" style="width: 40%" role="progressbar" aria-valuenow="20" aria-valuemin="0" aria-valuemax="100">
+                              <span class="sr-only">40% Complete</span>
+                            </div>
+                          </div>
+                        </a>
+                      </li><!-- end task item -->
+                      <li><!-- Task item -->
+                        <a href="#">
+                          <h3>
+                            Some task I need to do
+                            <small class="pull-right">60%</small>
+                          </h3>
+                          <div class="progress xs">
+                            <div class="progress-bar progress-bar-red" style="width: 60%" role="progressbar" aria-valuenow="20" aria-valuemin="0" aria-valuemax="100">
+                              <span class="sr-only">60% Complete</span>
+                            </div>
+                          </div>
+                        </a>
+                      </li><!-- end task item -->
+                      <li><!-- Task item -->
+                        <a href="#">
+                          <h3>
+                            Make beautiful transitions
+                            <small class="pull-right">80%</small>
+                          </h3>
+                          <div class="progress xs">
+                            <div class="progress-bar progress-bar-yellow" style="width: 80%" role="progressbar" aria-valuenow="20" aria-valuemin="0" aria-valuemax="100">
+                              <span class="sr-only">80% Complete</span>
+                            </div>
+                          </div>
+                        </a>
+                      </li><!-- end task item -->
+                    </ul>
+                  </li>
+                  <li class="footer">
+                    <a href="#">View all tasks</a>
+                  </li>
+                </ul>
+              </li>
+              <!-- User Account: style can be found in dropdown.less -->
+              <li class="dropdown user user-menu">
+                <a href="#" class="dropdown-toggle" data-toggle="dropdown">
+                  <img src="/resources/dist/img/user2-160x160.jpg" class="user-image" alt="User Image"/>
+                  <span class="hidden-xs">Alexander Pierce</span>
+                </a>
+                <ul class="dropdown-menu">
+                  <!-- User image -->
+                  <li class="user-header">
+                    <img src="/resources/dist/img/user2-160x160.jpg" class="img-circle" alt="User Image" />
+                    <p>
+                      Alexander Pierce - Web Developer
+                      <small>Member since Nov. 2012</small>
+                    </p>
+                  </li>
+                  <!-- Menu Body -->
+                  <li class="user-body">
+                    <div class="col-xs-4 text-center">
+                      <a href="#">Followers</a>
+                    </div>
+                    <div class="col-xs-4 text-center">
+                      <a href="#">Sales</a>
+                    </div>
+                    <div class="col-xs-4 text-center">
+                      <a href="#">Friends</a>
+                    </div>
+                  </li>
+                  <!-- Menu Footer-->
+                  <li class="user-footer">
+                    <div class="pull-left">
+                      <a href="#" class="btn btn-default btn-flat">Profile</a>
+                    </div>
+                    <div class="pull-right">
+                      <a href="#" class="btn btn-default btn-flat">Sign out</a>
+                    </div>
+                  </li>
+                </ul>
+              </li>
+              <!-- Control Sidebar Toggle Button -->
+              <li>
+                <a href="#" data-toggle="control-sidebar"><i class="fa fa-gears"></i></a>
+              </li>
+            </ul>
+          </div>
+        </nav>
+      </header>
+      <!-- Left side column. contains the logo and sidebar -->
+      <aside class="main-sidebar">
+        <!-- sidebar: style can be found in sidebar.less -->
+        <section class="sidebar">
+          <!-- Sidebar user panel -->
+          <div class="user-panel">
+            <div class="pull-left image">
+              <img src="/resources/dist/img/user2-160x160.jpg" class="img-circle" alt="User Image" />
+            </div>
+            <div class="pull-left info">
+              <p>Alexander Pierce</p>
+
+              <a href="#"><i class="fa fa-circle text-success"></i> Online</a>
+            </div>
+          </div>
+          <!-- search form -->
+          <form action="#" method="get" class="sidebar-form">
+            <div class="input-group">
+              <input type="text" name="q" class="form-control" placeholder="Search..."/>
+              <span class="input-group-btn">
+                <button type='submit' name='search' id='search-btn' class="btn btn-flat"><i class="fa fa-search"></i></button>
+              </span>
+            </div>
+          </form>
+          <!-- /.search form -->
+          <!-- sidebar menu: : style can be found in sidebar.less -->
+          <ul class="sidebar-menu">
+            <li class="header">MAIN NAVIGATION</li>
+            <li class="treeview">
+              <a href="#">
+                <i class="fa fa-dashboard"></i> <span>Dashboard</span> <i class="fa fa-angle-left pull-right"></i>
+              </a>
+              <ul class="treeview-menu">
+                <li><a href="/resources/index.html"><i class="fa fa-circle-o"></i> Dashboard v1</a></li>
+                <li><a href="/resources/index2.html"><i class="fa fa-circle-o"></i> Dashboard v2</a></li>
+              </ul>
+            </li>
+            <li class="treeview">
+              <a href="#">
+                <i class="fa fa-files-o"></i>
+                <span>Layout Options</span>
+                <span class="label label-primary pull-right">4</span>
+              </a>
+              <ul class="treeview-menu">
+                <li><a href="../layout/top-nav.html"><i class="fa fa-circle-o"></i> Top Navigation</a></li>
+                <li><a href="../layout/boxed.html"><i class="fa fa-circle-o"></i> Boxed</a></li>
+                <li><a href="../layout/fixed.html"><i class="fa fa-circle-o"></i> Fixed</a></li>
+                <li><a href="../layout/collapsed-sidebar.html"><i class="fa fa-circle-o"></i> Collapsed Sidebar</a></li>
+              </ul>
+            </li>
+            <li>
+              <a href="../widgets.html">
+                <i class="fa fa-th"></i> <span>Widgets</span> <small class="label pull-right bg-green">new</small>
+              </a>
+            </li>
+            <li class="treeview">
+              <a href="#">
+                <i class="fa fa-pie-chart"></i>
+                <span>Charts</span>
+                <i class="fa fa-angle-left pull-right"></i>
+              </a>
+              <ul class="treeview-menu">
+                <li><a href="../charts/chartjs.html"><i class="fa fa-circle-o"></i> ChartJS</a></li>
+                <li><a href="../charts/morris.html"><i class="fa fa-circle-o"></i> Morris</a></li>
+                <li><a href="../charts/flot.html"><i class="fa fa-circle-o"></i> Flot</a></li>
+                <li><a href="../charts/inline.html"><i class="fa fa-circle-o"></i> Inline charts</a></li>
+              </ul>
+            </li>
+            <li class="treeview">
+              <a href="#">
+                <i class="fa fa-laptop"></i>
+                <span>UI Elements</span>
+                <i class="fa fa-angle-left pull-right"></i>
+              </a>
+              <ul class="treeview-menu">
+                <li><a href="../UI/general.html"><i class="fa fa-circle-o"></i> General</a></li>
+                <li><a href="../UI/icons.html"><i class="fa fa-circle-o"></i> Icons</a></li>
+                <li><a href="../UI/buttons.html"><i class="fa fa-circle-o"></i> Buttons</a></li>
+                <li><a href="../UI/sliders.html"><i class="fa fa-circle-o"></i> Sliders</a></li>
+                <li><a href="../UI/timeline.html"><i class="fa fa-circle-o"></i> Timeline</a></li>
+                <li><a href="../UI/modals.html"><i class="fa fa-circle-o"></i> Modals</a></li>
+              </ul>
+            </li>
+            <li class="treeview active">
+              <a href="#">
+                <i class="fa fa-edit"></i> <span>Forms</span>
+                <i class="fa fa-angle-left pull-right"></i>
+              </a>
+              <ul class="treeview-menu">
+                <li class="active"><a href="general.html"><i class="fa fa-circle-o"></i> General Elements</a></li>
+                <li><a href="advanced.html"><i class="fa fa-circle-o"></i> Advanced Elements</a></li>
+                <li><a href="editors.html"><i class="fa fa-circle-o"></i> Editors</a></li>
+              </ul>
+            </li>
+            <li class="treeview">
+              <a href="#">
+                <i class="fa fa-table"></i> <span>Tables</span>
+                <i class="fa fa-angle-left pull-right"></i>
+              </a>
+              <ul class="treeview-menu">
+                <li><a href="../tables/simple.html"><i class="fa fa-circle-o"></i> Simple tables</a></li>
+                <li><a href="../tables/data.html"><i class="fa fa-circle-o"></i> Data tables</a></li>
+              </ul>
+            </li>
+            <li>
+              <a href="../calendar.html">
+                <i class="fa fa-calendar"></i> <span>Calendar</span>
+                <small class="label pull-right bg-red">3</small>
+              </a>
+            </li>
+            <li>
+              <a href="../mailbox/mailbox.html">
+                <i class="fa fa-envelope"></i> <span>Mailbox</span>
+                <small class="label pull-right bg-yellow">12</small>
+              </a>
+            </li>
+            <li class="treeview">
+              <a href="#">
+                <i class="fa fa-folder"></i> <span>Examples</span>
+                <i class="fa fa-angle-left pull-right"></i>
+              </a>
+              <ul class="treeview-menu">
+                <li><a href="../examples/invoice.html"><i class="fa fa-circle-o"></i> Invoice</a></li>
+                <li><a href="../examples/login.html"><i class="fa fa-circle-o"></i> Login</a></li>
+                <li><a href="../examples/register.html"><i class="fa fa-circle-o"></i> Register</a></li>
+                <li><a href="../examples/lockscreen.html"><i class="fa fa-circle-o"></i> Lockscreen</a></li>
+                <li><a href="../examples/404.html"><i class="fa fa-circle-o"></i> 404 Error</a></li>
+                <li><a href="../examples/500.html"><i class="fa fa-circle-o"></i> 500 Error</a></li>
+                <li><a href="../examples/blank.html"><i class="fa fa-circle-o"></i> Blank Page</a></li>                
+              </ul>
+            </li>
+            <li class="treeview">
+              <a href="#">
+                <i class="fa fa-share"></i> <span>Multilevel</span>
+                <i class="fa fa-angle-left pull-right"></i>
+              </a>
+              <ul class="treeview-menu">
+                <li><a href="#"><i class="fa fa-circle-o"></i> Level One</a></li>
+                <li>
+                  <a href="#"><i class="fa fa-circle-o"></i> Level One <i class="fa fa-angle-left pull-right"></i></a>
+                  <ul class="treeview-menu">
+                    <li><a href="#"><i class="fa fa-circle-o"></i> Level Two</a></li>
+                    <li>
+                      <a href="#"><i class="fa fa-circle-o"></i> Level Two <i class="fa fa-angle-left pull-right"></i></a>
+                      <ul class="treeview-menu">
+                        <li><a href="#"><i class="fa fa-circle-o"></i> Level Three</a></li>
+                        <li><a href="#"><i class="fa fa-circle-o"></i> Level Three</a></li>
+                      </ul>
+                    </li>
+                  </ul>
+                </li>
+                <li><a href="#"><i class="fa fa-circle-o"></i> Level One</a></li>
+              </ul>
+            </li>
+            <li><a href="/resources/documentation/index.html"><i class="fa fa-book"></i> <span>Documentation</span></a></li>
+            <li class="header">LABELS</li>
+            <li><a href="#"><i class="fa fa-circle-o text-red"></i> <span>Important</span></a></li>
+            <li><a href="#"><i class="fa fa-circle-o text-yellow"></i> <span>Warning</span></a></li>
+            <li><a href="#"><i class="fa fa-circle-o text-aqua"></i> <span>Information</span></a></li>
+          </ul>
+        </section>
+        <!-- /.sidebar -->
+      </aside>
+
+      <!-- Content Wrapper. Contains page content -->
+      <div class="content-wrapper">
+        <!-- Content Header (Page header) -->
+        <section class="content-header">
+          <h1>
+            General Form Elements
+            <small>Preview</small>
+          </h1>
+          <ol class="breadcrumb">
+            <li><a href="#"><i class="fa fa-dashboard"></i> Home</a></li>
+            <li><a href="#">Forms</a></li>
+            <li class="active">General Elements</li>
+          </ol>
+        </section>
+
+──────────────────
+  (10) 각 view용 .jsp에서 사용할 footer.jsp 제작 (/webapp/WEB-INF/views/include/ 폴더 아래에 복사)
+    이 부분은 각 프로젝트들 마다 상이하기 때문에 디자이너, 퍼블리셔와 상의해서 제작.
+    아래는 bootstrap을 사용하는 용도로 만들어진 header.jsp이다.
+
+<%@ page language="java" contentType="text/html; charset=UTF-8"
+    pageEncoding="UTF-8"%>
+
+      <footer class="main-footer">
+        <div class="pull-right hidden-xs">
+          <b>Version</b> 2.0
+        </div>
+        <strong>Copyright &copy; 2014-2015 <a href="http://almsaeedstudio.com">Almsaeed Studio</a>.</strong> All rights reserved.
+      </footer>
+      
+      <!-- Control Sidebar -->      
+      <aside class="control-sidebar control-sidebar-dark">                
+        <!-- Create the tabs -->
+        <ul class="nav nav-tabs nav-justified control-sidebar-tabs">
+          <li><a href="#control-sidebar-home-tab" data-toggle="tab"><i class="fa fa-home"></i></a></li>
+          
+          <li><a href="#control-sidebar-settings-tab" data-toggle="tab"><i class="fa fa-gears"></i></a></li>
+        </ul>
+        <!-- Tab panes -->
+        <div class="tab-content">
+          <!-- Home tab content -->
+          <div class="tab-pane" id="control-sidebar-home-tab">
+            <h3 class="control-sidebar-heading">Recent Activity</h3>
+            <ul class='control-sidebar-menu'>
+              <li>
+                <a href='javascript::;'>
+                  <i class="menu-icon fa fa-birthday-cake bg-red"></i>
+                  <div class="menu-info">
+                    <h4 class="control-sidebar-subheading">Langdon's Birthday</h4>
+                    <p>Will be 23 on April 24th</p>
+                  </div>
+                </a>
+              </li>
+              <li>
+                <a href='javascript::;'>
+                  <i class="menu-icon fa fa-user bg-yellow"></i>
+                  <div class="menu-info">
+                    <h4 class="control-sidebar-subheading">Frodo Updated His Profile</h4>
+                    <p>New phone +1(800)555-1234</p>
+                  </div>
+                </a>
+              </li>
+              <li>
+                <a href='javascript::;'>
+                  <i class="menu-icon fa fa-envelope-o bg-light-blue"></i>
+                  <div class="menu-info">
+                    <h4 class="control-sidebar-subheading">Nora Joined Mailing List</h4>
+                    <p>nora@example.com</p>
+                  </div>
+                </a>
+              </li>
+              <li>
+                <a href='javascript::;'>
+                  <i class="menu-icon fa fa-file-code-o bg-green"></i>
+                  <div class="menu-info">
+                    <h4 class="control-sidebar-subheading">Cron Job 254 Executed</h4>
+                    <p>Execution time 5 seconds</p>
+                  </div>
+                </a>
+              </li>
+            </ul><!-- /.control-sidebar-menu -->
+
+            <h3 class="control-sidebar-heading">Tasks Progress</h3> 
+            <ul class='control-sidebar-menu'>
+              <li>
+                <a href='javascript::;'>               
+                  <h4 class="control-sidebar-subheading">
+                    Custom Template Design
+                    <span class="label label-danger pull-right">70%</span>
+                  </h4>
+                  <div class="progress progress-xxs">
+                    <div class="progress-bar progress-bar-danger" style="width: 70%"></div>
+                  </div>                                    
+                </a>
+              </li> 
+              <li>
+                <a href='javascript::;'>               
+                  <h4 class="control-sidebar-subheading">
+                    Update Resume
+                    <span class="label label-success pull-right">95%</span>
+                  </h4>
+                  <div class="progress progress-xxs">
+                    <div class="progress-bar progress-bar-success" style="width: 95%"></div>
+                  </div>                                    
+                </a>
+              </li> 
+              <li>
+                <a href='javascript::;'>               
+                  <h4 class="control-sidebar-subheading">
+                    Laravel Integration
+                    <span class="label label-waring pull-right">50%</span>
+                  </h4>
+                  <div class="progress progress-xxs">
+                    <div class="progress-bar progress-bar-warning" style="width: 50%"></div>
+                  </div>                                    
+                </a>
+              </li> 
+              <li>
+                <a href='javascript::;'>               
+                  <h4 class="control-sidebar-subheading">
+                    Back End Framework
+                    <span class="label label-primary pull-right">68%</span>
+                  </h4>
+                  <div class="progress progress-xxs">
+                    <div class="progress-bar progress-bar-primary" style="width: 68%"></div>
+                  </div>                                    
+                </a>
+              </li>               
+            </ul><!-- /.control-sidebar-menu -->         
+
+          </div><!-- /.tab-pane -->
+          <!-- Stats tab content -->
+          <div class="tab-pane" id="control-sidebar-stats-tab">Stats Tab Content</div><!-- /.tab-pane -->
+          <!-- Settings tab content -->
+          <div class="tab-pane" id="control-sidebar-settings-tab">            
+            <form method="post">
+              <h3 class="control-sidebar-heading">General Settings</h3>
+              <div class="form-group">
+                <label class="control-sidebar-subheading">
+                  Report panel usage
+                  <input type="checkbox" class="pull-right" checked />
+                </label>
+                <p>
+                  Some information about this general settings option
+                </p>
+              </div><!-- /.form-group -->
+
+              <div class="form-group">
+                <label class="control-sidebar-subheading">
+                  Allow mail redirect
+                  <input type="checkbox" class="pull-right" checked />
+                </label>
+                <p>
+                  Other sets of options are available
+                </p>
+              </div><!-- /.form-group -->
+
+              <div class="form-group">
+                <label class="control-sidebar-subheading">
+                  Expose author name in posts
+                  <input type="checkbox" class="pull-right" checked />
+                </label>
+                <p>
+                  Allow the user to show his name in blog posts
+                </p>
+              </div><!-- /.form-group -->
+
+              <h3 class="control-sidebar-heading">Chat Settings</h3>
+
+              <div class="form-group">
+                <label class="control-sidebar-subheading">
+                  Show me as online
+                  <input type="checkbox" class="pull-right" checked />
+                </label>                
+              </div><!-- /.form-group -->
+
+              <div class="form-group">
+                <label class="control-sidebar-subheading">
+                  Turn off notifications
+                  <input type="checkbox" class="pull-right" />
+                </label>                
+              </div><!-- /.form-group -->
+
+              <div class="form-group">
+                <label class="control-sidebar-subheading">
+                  Delete chat history
+                  <a href="javascript::;" class="text-red pull-right"><i class="fa fa-trash-o"></i></a>
+                </label>                
+              </div><!-- /.form-group -->
+            </form>
+          </div><!-- /.tab-pane -->
+        </div>
+      </aside><!-- /.control-sidebar -->
+      <!-- Add the sidebar's background. This div must be placed
+           immediately after the control sidebar -->
+      <div class='control-sidebar-bg'></div>
+    </div><!-- ./wrapper -->
+
+    <!-- Bootstrap 3.3.2 JS -->
+    <script src="/resources/bootstrap/js/bootstrap.min.js" type="text/javascript"></script>
+    <!-- FastClick -->
+    <script src='/resources/plugins/fastclick/fastclick.min.js'></script>
+    <!-- AdminLTE App -->
+    <script src="/resources/dist/js/app.min.js" type="text/javascript"></script>
+    <!-- AdminLTE for demo purposes -->
+    <script src="/resources/dist/js/demo.js" type="text/javascript"></script>
+  </body>
+</html>
+
+──────────────────
+  (11) header.jsp, footer.jsp 파일을 복사할 경로(위치)
+      /webapp/WEB-INF/views/include/ 폴더 아래에 복사하면 된다.
+
+──────────────────
+  (12) 게시판 글 등록을 위한 view의 구현 (/views/board/register.jsp)
+<%@ page language="java" contentType="text/html; charset=UTF-8" pageEncoding="UTF-8" %>
+
+<%@ include file="../include/header.jsp" %>
+
+<!-- Main Content -->
+<section class="content">
+	<div class="row">
+		<!-- left column -->
+		<div class="col-md-12">
+			<!-- general form elements -->
+			<div class="box box-primary">
+				<div class="box-header">
+					<h3 class="box-title">REGISTER BOARD</h3>
+				</div>
+				
+<!-- 아래 form에서 action이 빠져있다. 이렇게 action이 명시되어있지 않으면 현재 경로를 그대로 action의
+대상으로 잡는다. 즉 현재 경로는 localhost:8181/board/register를 그대로 action으로 잡는다.
+따라서 post이면서 url이 localhost:8181/board/register이면 BoardControl 클래스의
+registPOST()가 호출되어 실행되는 것이다.  -->				
+<form role="form" method="post">
+	<div class="box-body">
+		<div class="form-group">
+			<label for="exampleInputEmail1">Title</label>
+			<input type="text" name="title" class="form-control" placeholder="Enter Title">
+		</div> <!-- class form-group -->
+		<div class="form-group">
+			<label for="exampleInputPassword1">Content</label>
+			<textarea class="form-control" name="content" rows="3" placeholder="Enter..."></textarea>
+		</div> <!-- class form-group -->
+		<div class="form-group">
+			<label for="exampleInputEmail1">Writer</label>
+			<input type="text" name="writer" class="form-control" placeholder="Enter Writer">
+		</div> <!-- class form-group -->
+	</div> <!-- class box-body -->
+	<div class="box-footer">
+		<button type="submit" class="btn btn-primary">Submit</button>
+	</div>
+	
+</form>
+
+			</div> <!-- class box box-primary -->
+		</div> <!-- class col-md-12 -->
+	</div> <!-- class row -->
+</section>
+
+<%@ include file="../include/footer.jsp" %>
+
+──────────────────
+  (13) 글 등록 후 글 목록 보여주기 위한 Controller 제작
+위의 BoardController.java에 다음 내용 추가
+
+	@RequestMapping(value = "/listAll", method=RequestMethod.GET)
+//	public void listAll(Model model)throws Exception
+	public void listAll(Model model, RedirectAttributes rttr)throws Exception
+	{
+		logger.info("$$$$$$$ show all list ................");
+		//public List<BoardVO> listAll() throws Exception
+		model.addAttribute("list", service.listAll());
+		
+		//아래 코드는 listAll.jsp의 javascript에서 "처리가 완료되었습니다."다는
+		//메시지를 보이기 위해 필요한 코드이다.
+		//아래 코드가 없으면 listAll.jsp의 javascript에서 result에 아무 값도 전달되지 않는다.
+//		model.addAttribute("msg", "SUCCESS"); //이 방식으로하면 SUCCESS의 값이 계속 남아 있기때문에
+		
+		//model.addAttribute()을 사용하면 SUCCESS의 값이 계속 남아 있기 때문에
+		//RedirectAttributes를 이용해서 해야 한번만 사용하고 끝나게 된다.
+		rttr.addFlashAttribute("msg", "SUCCESS");
+	}
+
+──────────────────
+  (14) 글 전체 목록을 보여 줄 view단 listAll.jsp를 제작(글 각 목록에 대한 링크 처리 포함)(/webapp/WEB-INF/view/board/listAll.jsp)
+<%@ page language="java" contentType="text/html; charset=UTF-8"
+    pageEncoding="UTF-8"%>
+<%@ taglib uri="http://java.sun.com/jsp/jstl/core" prefix="c" %>
+<%@ taglib uri="http://java.sun.com/jsp/jstl/fmt" prefix="fmt" %>
+<%@ page session="false" %>
+
+<%@ include file="../include/header.jsp" %>
+
+	<!-- Main content -->
+	<section class="content">
+		<div class="row">
+			<!-- left column -->
+			<div class="col-md-12">
+				<!-- general form elements -->
+				<div class="box">
+					<div class="box-header with-border">
+						<h3 class="box-title">LIST ALL PAGE</h3>
+					</div><!-- class box-header -->
+					<div class="box-body">
+<table class="table table-bordered">
+	<tr>
+		<th style="width: 10px">BNO</th>
+		<th>TITLE</th>
+		<th>WRITER</th>
+		<th>REGDATE</th>
+		<th style="width: 40px">VIEWCNT</th>
+	</tr>
+
+	<c:forEach items="${list}" var="boardVO">
+		<tr>
+			<td>${boardVO.bno }</td> <!-- BoardVO의 변수 명과 일치해야 -->
+			<td><a href="/board/read?bno=${boardVO.bno}">${boardVO.title}</a></td>
+			<td>${boardVO.writer }</td>
+			<td><fmt:formatDate pattern="yyy-MM-dd HH:mm" value="${boardVO.regdate}"/></td>
+			<!-- boardVO.viewCnt는 BoardVO 클래스의 멤버 변수명과 일치해야 한다. -->
+			<td><span class="badge bg-red">${boardVO.viewCnt }</span></td> 
+		</tr>
+	</c:forEach>
+</table>					
+					</div> <!-- class box-body -->
+				</div> <!-- box -->
+			</div> <!-- col-md-12 -->
+		</div> <!-- class row -->
+	</section>
+
+<script>
+	var result = '${msg}';
+	//alert("result : "+result); //여기서 아무것도 없다
+	if (result == 'SUCCESS'){
+		alert("처리가 완료되었습니다.");
+	}
+</script>
+<%@ include file="../include/footer.jsp" %>
+
+──────────────────
+  (15) 글 목록 클릭시 글 내용 조회용 Controller 제작
+      위 BoardController.java에 아래 내용 추가
+	@RequestMapping(value = "/read", method=RequestMethod.GET)
+	public void read(@RequestParam("bno") int mybno, Model model) throws Exception
+	{
+		logger.info("$$$$$$$ Hello~ read method~~~");
+		
+		if(model == null) {
+			logger.info("$$$$$$$ model은 null");
+		} else {
+			logger.info("$$$$$$$ model이 null 아님~~~");
+		}
+		
+		//read(@RequestParam("bon") int mybno...)가 의미하는 것은 http url로
+		//http://localhost:8181/board/read?bno=3과 같이 접속해 들어오면 
+		//@RequestParam 어노테이션이 bno=3을 받아서 mybno로 bind(연결) 시켜준다.
+		//그래서 이 메소드 안에서 3의 값이 들어 있는 mybno를 사용할수 있게 한다는 의미이다.
+		
+		//아래와 같이 model.addAttribute()메소드에 key-value쌍으로 저장하지 않고 key값 없이
+		//데이터만 저장하면 key 값은 자동으로 addAttribute()에 저장되는 클래스의 첫 글자를 소문자로 바꾼
+		//형태가 key값이 된다. 아래에서는 service.read(mybno)가 반환하는 객체가 저장되는 데이터인데
+		//read(Integer bno)가 반환하는 데이터(클래스)가 BoardVO 클래스이므로 boardVO가 
+		//키 값이 된다.
+		//public BoardVO read(Integer bno) throws Exception;
+		model.addAttribute(service.read(mybno));
+	}
+
+──────────────────
+  (16) 글 목록 클릭시 글 내용 조회용 view read.jsp 작성 (/webapp/WEB-INF/view/board/read.jsp)
+글 내용 조회화면에서 해당 글에 대한 "수정", "삭제", "글 목록 보기" 버튼 제공해야 한다.
+-. 수정 : 별도의 수정이 가능한 페이지로 이동 후 처리
+-. 삭제 : 글 내용 조회 페이지에서 바로 삭제 처리
+
+<%@ page language="java" contentType="text/html; charset=UTF-8"
+    pageEncoding="UTF-8"%>
+    
+<%@ include file="../include/header.jsp" %>
+	<!-- Main content -->
+	<section class="content">
+		<div class="row">
+			<!--  left column -->
+			<div class="col-md-12">
+				<!-- general form elements -->
+				<div class="box box-primary">
+					<div class="box-header">
+						<h3 class="box-title">READ BOARD</h3>
+					</div> <!-- class box-heaer -->
+					
+<form role="form" method="post">
+	<input type="hidden" name="bno" value="${boardVO.bno }">
+</form>
+
+<div class="box-body">
+	<div class="form-group">
+		<label for="exampleInputEmail1">Title</label>
+		<!-- 아래의 boardVO.title은 BoardVO.java의 변수명과 일치하게 표현해야 한다. -->
+		<input type="text" name="title" class="form-control" 
+				value="${boardVO.title}" readonly="readonly">
+	</div> <!-- class form-group -->
+	<div class="form-group">
+		<label for="exampleInputPassword1">Content</label>
+		<textarea class="form-control" name="content" rows="3" 
+				readonly="readonly">${boardVO.content}</textarea>
+	</div> <!-- class form-group -->
+	<div class="form-group">
+		<label for="exampleInputEmail1">Writer</label>
+		<input type="text" name="writer" class="form-control"
+			value="${boardVO.writer}" readonly="readonly">
+	</div>
+</div> <!-- class box-body -->
+
+<div class="box-footer">
+	<button type="submit" class="btn btn-warning">Modify</button>
+	<button type="submit" class="btn btn-danger">REMOVE</button>
+	<button type="submit" class="btn btn-primary">LIST ALL</button>
+</div>
+
+<script>
+//3개의 버튼들 클릭 이벤트 처리를 위해
+$(document).ready(function(){
+	var formObj = $("form[role='form']");
+	//alert("formObj : "+formObj);
+	console.log("formObj : ", formObj);
+	
+	//Modify 버튼 클릭 이벤트 처리
+	$(".btn-warning").on("click", function(){
+		formObj.attr("action", "/board/modify");
+		//아래에서 method를 굳이 get으로 명시한 것은 위의 form의 method가 post로 명시되어 있기
+		//때문에 특별히 get 방식으로 전송하고자 해서 아래와 같이 method를 get으로 변경한 것이다.
+		formObj.attr("method", "get");
+		formObj.submit();
+	});
+	
+	//REMOVE 버튼
+	$(".btn-danger").on("click", function(){
+		formObj.attr("action", "/board/remove");
+		//여기에서 method를 post로 명시하지 않았음에도 불구하고
+		//BoardControl의 remove() 메소드를 post로 호출할수 있었던 이유는 위의 form의 method가
+		//post로 지정되어 있기 때문에 가능하다.
+		formObj.submit();
+	});
+	
+	//LIST ALL 버튼
+	$(".btn-primary").on("click", function(){
+		self.location = "/board/listAll";
+	});
+});
+</script>
+					
+				</div> <!-- class box -->
+			</div> <!-- class col-md-12 -->
+		</div> <!-- class row -->
+	</section>
+<%@ include file="../include/footer.jsp" %>    
+
+──────────────────
+  (17) 글 삭제 처리를 위한 Controller 제작
+       위 BoardController.java에 아래 내용 추가
+
+	@RequestMapping(value = "/remove", method=RequestMethod.POST)
+	public String remove(@RequestParam("bno") int mybno, RedirectAttributes rttr) throws Exception
+	{
+		//@RequestParam("bno")로 넘어는 것은  read.jsp의 form input type="hidden"으로 되어 있는 곳에서 넘어오는
+		//파라미터임
+		
+		service.remove(mybno);
+		rttr.addFlashAttribute("msg", "SUCCESS");
+		return "redirect:/board/listAll";
+	}
+
+──────────────────
+  (18) 글 수정 처리를 위한 Controller 제작
+       위 BoardController.java에 아래 내용 추가. 아래에서 
+       -. modifyGET(int bno, Model model)는 modify.jsp로 글 내용을 넘겨서 사용자로 하여금 수정하도록 하기 위함임
+       -. modifyPOST(BoardVO board, RedirectAttributes rttr)는 modify.jsp에서 사용자가 수정한 후 "SAVE" 버튼을 눌렀을 때 수정된 내용을 DB에 저장하기 위한 용도임
+
+	@RequestMapping(value = "/modify", method=RequestMethod.GET)
+	public void modifyGET(int bno, Model model) throws Exception
+	{
+		//이 메소드에서는 위의 remove()와 달리 @RequestParam 어노테이션으로 bno 값을 받지 않았을까?
+		//modifyGET(@RequestParam("bno") int bno...)와 같이 하지 않고 위와 같이 
+		//막바로 modifyGET(int bno, ...)로 처리했는데도 read.jsp의  form의 input type="hidden"에서
+		//넘긴 bno의 값이 정상적으로 잘 넘어왔다.
+		//이유는 read.jsp의 form에서 input type="hidden"으로 넘어오는 값의 name이 bno인데 
+		//이 이름과 동일하게 modifyGET()의 파라미터 이름을 bno로 명명했기 때문에 @RequestParam 어노테이션을
+		//생략가능한 것이다. 만일 input type="hidden"으로 넘어오는 name의 이름은 bno인데
+		//modifyGET(int mybno, ...)와 같이 하면 에러가 발생한다. 이렇게 이름이 다를 경우는
+		//@RequestParam 어노테이션을 사용해야 한다.
+		
+		logger.info("$$$$$$$ modifyGET mybno : "+bno);
+		//public BoardVO read(Integer bno) throws Exception;
+		//아래와 같이 key-value에서 key를 생략하면 boardVO가 key가 된다.
+		model.addAttribute(service.read(bno));
+	}
+	
+	@RequestMapping(value = "/modify", method=RequestMethod.POST)
+	public String modifyPOST(BoardVO board, RedirectAttributes rttr) throws Exception
+	{
+		//여기서 modify.jsp의 form에서 넘기는 데이터들이 어떻게 BoardVO 객체로 자동으로 받을수 있는거지?
+		//이건 BoardVO의 멤버 변수의 이름과 modify.jsp의  form안에 있는 input type="text"의 name으로 지정한 이름이
+		//동일하기 때문에 Spring이 VO의 getter, setter를 이용해서 자동 매핑해주기 때문에 그렇다.
+		//이걸 command 객체라고 한다.
+
+		
+		logger.info("$$$$$$$ modifyPOST()~  ");
+		
+		service.modify(board);
+		rttr.addFlashAttribute("msg", "SUCCESS");
+		
+		return "redirect:/board/listAll";
+	}
+
+──────────────────
+  (19) 사용자가 글 내용을 수정할 modify.jsp 제작
+<%@ page language="java" contentType="text/html; charset=UTF-8"
+    pageEncoding="UTF-8"%>
+
+<%@ include file="../include/header.jsp" %>
+
+<!-- Main content -->
+<section class="content">
+	<div class="row">
+		<!-- left column -->
+		<div class="col-md-12">
+			<!-- general from elements -->
+			<div class="box box-primary">
+				<div class="box-header">
+					<h3 class="box-title">READ BOARD</h3>
+				</div> <!-- class box-header -->
+
+<!-- 아래 form에서 action을 명시해 주지않으면 현재 경로(/board/modify)가 자동으로 
+	action 값으로 지정이 되고 method가 post이므로 BoardController 클래스의 @ReqeustMapping
+	어노테이션이 지정하는 /board/modify이면서 post인 함수가 실행이 될 것이다. -->				
+<form role="form" method="post">
+	<div class="box-body">
+		<div class="form-group">
+			<label for="exampleInputEmail1">BNO</label>
+			<input type="text" name="bno" class="form-control" value="${boardVO.bno}"
+				readonly="readonly"> <!-- Modify에서 bno는 수정하면 안되기때문에 -->
+		</div>
+		<div class="form-group">
+			<label for="exampleInputEmail1">Title</label>
+			<input type="text" name="title" class="form-control" value="${boardVO.title}">
+		</div>
+		<div class="form-group">
+			<label for="exampleInputPassword1">Content</label>
+			<textarea class="form-control" name="content" rows="3">${boardVO.content}</textarea>
+		</div>
+		<div class="form-group">
+			<label for="exampleInputEmail1">Writer</label>
+			<input type="text" name="writer" class="form-control" value="${boardVO.writer}">
+		</div>
+	</div> <!-- class box-body -->
+</form>				
+
+<div class="box-footer">
+	<button type="submit" class="btn btn-primary">SAVE</button>
+	<button type="submit" class="btn btn-warning">CANCEL</button>
+</div>
+				
+<script>
+	$(document).ready(function(){
+		var formObj = $("form[role='form']");
+		console.log(formObj);
+		
+		//CANCEL 버튼
+		$(".btn-warning").on("click", function(){
+			self.location = "/board/listAll";
+		});
+		
+		//SAVE
+		$(".btn-primary").on("click", function(){
+			formObj.submit();
+		});
+	});
+</script>				
+			</div> <!-- class box box-primary -->
+		</div> <!-- class col-md-12 -->
+	</div> <!-- class row -->
+</section>
+
+<%@ include file="../include/footer.jsp" %>    
+
+──────────────────
+  (20) 게시판 글 DB에 저장시 한글 깨지지 않도록 web.xml 설정
+    /webapp/WEB-INF/web.xml안에 아래 내용 추가
+
+	<!-- DB에 저장시 한글 안깨지게 -->
+	<filter>
+	  <filter-name>encoding</filter-name>
+	  <filter-class>org.springframework.web.filter.CharacterEncodingFilter</filter-class>
+	  <init-param>
+	   <param-name>encoding</param-name>
+	   <param-value>UTF-8</param-value>
+	  </init-param>
+	</filter>
+	
+	<filter-mapping>
+	  <filter-name>encoding</filter-name>
+	  <url-pattern>/*</url-pattern>
+	</filter-mapping>
+
+
+◆ Spring 게시판 + Pagination
+위 『◆ Spring 게시판 기본 제작하기(pagination 제외)』 상태에서 계속 진행하면 된다.
+
+[1] 간략
+  (1) 페이징 처리의 기본개념
+  (2) 페이징 처리를 위한 SQL Query 이해(MySQL의 경우)
+  (3) MySQL LIMIT의 「시작 데이터」, 「데이터 갯수」에 넘겨줄 Criteria 클래스 작성
+  (4) BoardDAO 작성
+  (5) BoardDAOImpl 구현
+  (6) BoardService 제작
+  (7) BoardServiceImpl 구현
+  (8) Paging 처리를 하는 Controller method 작성
+  (9) /views/board/listCri.jsp를 만든다.
+  (10) 화면 하단의 페이지 번호 표시의 개념
+  (11) 페이징 처리용 클래스 제작(PageMaker)
+  (12) BoardController에서 페이징 처리까지 구현된 기능 제작
+  (13) 페이징 처리용 .jsp 페이지 만들기(listPage.jsp)
+  (14) 글 내용 보기 후에 이전에 보던 목록 페이지로 이동하기(목록 페이지 정보 유지하기) - BoardController
+  (15) 글 내용 보기 후에 이전에 보던 목록 페이지로 이동하기(목록 페이지 정보 유지하기) - readPage.jsp
+  (16) 글 내용 보기 후에 이전에 보던 목록 페이지로 이동하기(목록 페이지 정보 유지하기) - listPage.jsp 수정, 보완
+  (17) 글 삭제 후에 이전에 보던 목록 페이지로 이동하기(목록 페이지 정보 유지하기) - BoardController
+  (18) 글 삭제 후에 이전에 보던 목록 페이지로 이동하기(목록 페이지 정보 유지하기) - readPage.jsp 수정
+  (19) 글 수정 후에 이전에 보던 목록 페이지로 이동하기(목록 페이지 정보 유지하기) - readPage.jsp 수정
+  (20) 글 수정 후에 이전에 보던 목록 페이지로 이동하기(목록 페이지 정보 유지하기) - BoardController
+  (21) 글 수정 후에 이전에 보던 목록 페이지로 이동하기(목록 페이지 정보 유지하기) - modifyPage.jsp
+  (22) 글 수정 내용을 DB에 update 후에 이전에 보던 목록 페이지로 이동하기(목록 페이지 정보 유지하기) - BoardController
+  (23) 글 쓰기 상태에서 목록가기 시 이전에 보던 목록 페이지로 이동하기(목록 페이지 정보 유지하기) - listPage.jsp
+  (24) 글 쓰기 상태에서 목록가기 시 이전에 보던 목록 페이지로 이동하기(목록 페이지 정보 유지하기) - Controller
+  (25) 글 쓰기 상태에서 목록가기 시 이전에 보던 목록 페이지로 이동하기(목록 페이지 정보 유지하기) - register.jsp 수정
+  (26) 글 쓰기 후에 이전에 보던 목록 페이지로 이동하기(목록 페이지 정보 유지하기) - BoardController
+
+
+[2] 자세히 
+──────────────────
+  (1) 페이징 처리의 기본개념
+     -. 페이징 처리는 반드시 GET 방식만을 이용해서 처리한다.
+     -. 페이지는 다른 사람에게 URL로 전달하는 경우가 많기 때문에 GET 방식으로 처리한다.
+     -. 페이징 처리시 조회 화면에서 "글 목록보기"가 있어야 한다.
+     -. 3페이지의 목록을 보다가 특정 글 내용을 보았다면 다시 "목록 보기" 버튼을 눌렀을 때 3페이지 목록이 보이도록해야한다. 첫 페이지 목록을 이동하면 안된다.
+     -. 한 페이지당 보여질 글의 갯수를 지정해야한다.
+     -. 한 페이지당 10개의 글을 보여줄 경우 전체 글의 갯수가 32개라면 화면 하단에 보여줄 총 페이지 번호는 4페이지까지 보이도록 해야한다.
+     -. 전체 페이지의 수가 많을 경우 이전 페이지, 다음 페이지 이동 기능이 있어야 한다. 그리고 시작 페이지 번호, 끝 페이지 번호에 대한 기능도 구현되어 있어야 한다.
+     -. MySQL의 경우 limit를 이용해서 현재 페이지에 해당하는 게시물만 select하도록 한다.
+        MySQL의 limit 문법은 limit 시작 데이터, 데이터 갯수(이때 맨 첫번째 데이터의 "시작 데이터"는 0으로 본다)
+        10개씩 데이터를 출력할 경우 : 
+          ㆍ1페이지(limit 0, 10) : 첫번째 데이터(index 0번 데이터)부터 10개
+          ㆍ2페이지(limit 10, 10) : 11번째 데이터(index 10번 데이터)부터 10개
+          ㆍ3페이지(limit 20, 10) : 21번째 데이터(index 20번 데이터)부터 10개 ..... 
+
+──────────────────
+  (2) 페이징 처리를 위한 SQL Query 이해(MySQL의 경우)
+     -. MySQL의 경우 limit 기능을 통해 페이징 처리 기능 구현
+     -. MySQL의 limit 문법은 ... limit 「시작 데이터」, 「데이터 갯수」
+     -. MySQL의 limit에서 시작 데이터의 index는 0부터 시작한다.
+     -. 한 페이지당 10개씩 데이터를 출력할 경우 
+       ㆍ1페이지(limit 0, 10) : 첫번째 데이터(index 0번 데이터)부터 10개(index 0~9)
+       ㆍ2페이지(limit 10, 10) : 11번째 데이터(index 10번 데이터)부터 10개(index 10~19)
+       ㆍ3페이지(limit 20, 10) : 21번째 데이터(index 20번 데이터)부터 10개(index 20~29) .....
+     -. SELECT ... LIMIT #{pageStart}, #{perPageNum}
+     -. #{pageStart}, #{perPageNum}에 넘겨줄 값을 Criteria 클래스(VO 클래스)를 이용해 넘긴다.
+     -. 
+     -. 
+
+──────────────────
+  (3) MySQL LIMIT의 「시작 데이터」, 「데이터 갯수」에 넘겨줄 Criteria 클래스 작성
+package com.joe.my.domain;
+
+public class Criteria {
+	private int page;			//화면 하단에서 선택한 페이지 번호
+	private int perPageNum;		//한 페이지당 몇 개의 글을 보여줄지에 대한 값(보통 한 페이지당 10개)
+	
+	public Criteria() {
+		this.page = 1;
+		this.perPageNum = 10;
+	}
+
+	public int getPage() {
+		return page;
+	}
+
+	public void setPage(int page) {
+		if(page <= 0) {
+			this.page = 1;
+			return;
+		}
+		
+		this.page = page;
+	}
+
+	public int getPerPageNum() {
+		return perPageNum;
+	}
+
+	public void setPerPageNum(int perPageNum) {
+		//perPageNum은 한 페이지 당 보여줄 글의 갯수
+		if(perPageNum <= 0 || perPageNum > 100) {
+			this.perPageNum = 10;
+			return;
+		}
+		
+		this.perPageNum = perPageNum;
+	}
+	
+	// method for MyBatis SQL Mappter
+	public int getPageStart() {
+		// MySQL의 limit에서 사용할 첫 번째 매개인자로 limit시 시작 데이터의 index 값이다.
+		// MySQL의 limit 문법은 ... limit 「시작 데이터」, 「데이터 갯수」
+		// MySQL의 limit에서 시작 데이터의 index는 0부터 시작한다. 
+        		// 10개씩 데이터를 출력할 경우 : 
+        		//	ㆍ1페이지(limit 0, 10) : 첫번째 데이터(index 0번 데이터)부터 10개(index 0~9)
+        		//	ㆍ2페이지(limit 10, 10) : 11번째 데이터(index 10번 데이터)부터 10개(index 10~19)
+        		//	ㆍ3페이지(limit 20, 10) : 21번째 데이터(index 20번 데이터)부터 10개(index 20~29) ..... 
+		int rt = (this.page - 1) * perPageNum;
+		return rt;
+	}
+	
+	@Override
+	public String toString() {
+		return "Criteria [page=" + page + ", perPageNum=" + perPageNum + "]";
+	}
+}
+
+──────────────────
+  (4) BoardDAO 작성
+
+package com.joe.my.persistence;
+
+import java.util.List;
+
+import com.joe.my.domain.BoardVO;
+import com.joe.my.domain.Criteria;
+
+public interface BoardDAO {
+	public void create(BoardVO vo) throws Exception;
+	public BoardVO read(Integer bno) throws Exception;
+	public void update(BoardVO vo) throws Exception;
+	public void delete(Integer bno) throws Exception;
+	public List<BoardVO> listAll() throws Exception;
+	
+	//이건 테스트용도
+	//화면 하단의 페이지 번호를 넘겨받아서 그에 해당하는 게시물들을 BoardVO에 담아 반환하는 역할
+	public List<BoardVO> listPage(int page) throws Exception;
+	
+	//Criteria 객체를 통해 MySQL의 limit에 사용될 2개의 파라미터를 전달하기
+	public List<BoardVO> listCriteria(Criteria cri) throws Exception;
+}
+
+──────────────────
+  (5) BoardDAOImpl 구현
+package com.joe.my.persistence;
+
+import java.util.List;
+
+import javax.inject.Inject;
+
+import org.apache.ibatis.session.SqlSession;
+import org.springframework.stereotype.Repository;
+
+import com.joe.my.domain.BoardVO;
+import com.joe.my.domain.Criteria;
+
+//@Repository는 해당 클래스가 DB에 접근하는 클래스임을 명시
+@Repository
+public class BoardDAOImpl implements BoardDAO {
+	@Inject   //가능
+	private SqlSession session;
+	
+	//@Autowired  //가능
+	//private SqlSession session;
+	
+	private static String namespace = "com.joe.my.JoeMyMapper";
+	
+	@Override
+	public void create(BoardVO vo) throws Exception {
+		session.insert(namespace+".create", vo);
+	}
+	
+	@Override
+	public BoardVO read(Integer bno) throws Exception {
+		return session.selectOne(namespace+".read", bno);
+	}
+	
+	@Override
+	public void update(BoardVO vo) throws Exception {
+		session.update(namespace+".update", vo);
+	}
+	
+	@Override
+	public void delete(Integer bno) throws Exception {
+		session.delete(namespace+".delete", bno);
+	}
+	
+	@Override
+	public List<BoardVO> listAll() throws Exception {
+		return session.selectList(namespace+".listAll");
+	}
+
+	//화면 하단의 페이지 번호를 넘겨받아서 그에 해당하는 게시물들을 BoardVO에 담아 반환하는 역할
+	@Override
+	public List<BoardVO> listPage(int page) throws Exception {
+		if(page <= 0) {
+			page = 1;
+		}
+		
+		// MySQL의 limit에서 사용할 첫 번째 매개인자로 limit시 시작 데이터의 index 값이다.
+		// MySQL의 limit 문법은 ... limit 「시작 데이터」, 「데이터 갯수」
+		// MySQL의 limit에서 시작 데이터의 index는 0부터 시작한다. 
+        		// 10개씩 데이터를 출력할 경우 : 
+        		//	ㆍ1페이지(limit 0, 10) : 첫번째 데이터(index 0번 데이터)부터 10개(index 0~9)
+        		//	ㆍ2페이지(limit 10, 10) : 11번째 데이터(index 10번 데이터)부터 10개(index 10~19)
+        		//	ㆍ3페이지(limit 20, 10) : 21번째 데이터(index 20번 데이터)부터 10개(index 20~29) ..... 
+		//page는 MySQL의 limit의 시작 번호이다. 
+		page = (page - 1) * 10;
+		
+		return session.selectList(namespace + ".listPage", page);
+	}
+
+	//Criteria 객체를 통해 MySQL의 limit에 사용될 2개의 파라미터를 전달하기
+	@Override
+	public List<BoardVO> listCriteria(Criteria cri) throws Exception {
+		return session.selectList(namespace + ".listCriteria", cri);
+	}
+}
+
+──────────────────
+  (6) BoardService 제작
+package com.joe.my.service;
+
+import java.util.List;
+
+import com.joe.my.domain.BoardVO;
+import com.joe.my.domain.Criteria;
+
+public interface BoardService {
+
+	public void regist(BoardVO vo) throws Exception;
+	public BoardVO read(Integer bno) throws Exception;
+	public void modify(BoardVO vo) throws Exception;
+	public void remove(Integer bno) throws Exception;
+	public List<BoardVO> listAll() throws Exception;
+
+	//Criteria 객체를 통해 MySQL의 limit에 사용될 2개의 파라미터를 전달하기
+	public List<BoardVO> listCriteria(Criteria cri) throws Exception;
+}
+
+──────────────────
+  (7) BoardServiceImpl 구현
+package com.joe.my.service;
+
+import java.util.List;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import com.joe.my.domain.BoardVO;
+import com.joe.my.domain.Criteria;
+import com.joe.my.persistence.BoardDAO;
+
+@Service  //Spring bean으로 인식되도록 하기 위해
+public class BoardServiceImpl implements BoardService{
+	@Autowired
+	private BoardDAO bdDao;
+
+	@Override
+	public void regist(BoardVO vo) throws Exception {
+		bdDao.create(vo);
+	}
+
+	@Override
+	public BoardVO read(Integer bno) throws Exception {
+		return bdDao.read(bno);
+	}
+
+	@Override
+	public void modify(BoardVO vo) throws Exception {
+		bdDao.update(vo);
+	}
+
+	@Override
+	public void remove(Integer bno) throws Exception {
+		bdDao.delete(bno);
+	}
+
+	@Override
+	public List<BoardVO> listAll() throws Exception {
+		return bdDao.listAll();
+	}
+	
+	//Criteria 객체를 통해 MySQL의 limit에 사용될 2개의 파라미터를 전달하기
+	@Override
+	public List<BoardVO> listCriteria(Criteria cri) throws Exception{
+		return bdDao.listCriteria(cri);
+	}
+}
+
+──────────────────
+  (8) Paging 처리를 하는 Controller method 작성
+
+	@RequestMapping(value="/listCri", method=RequestMethod.GET)
+	public void listAll(Criteria cri, Model model) throws Exception {
+		//Spring이 참 놀라운 게 아래와 같은 URL로 request 발생하면 각각 어떻게 처리되는고 하니
+		//http://localhost:7070/board/listCri
+		// ==> Criteria 객체가 자동 생성되고 파라미터 없을때는 Criteria의 생성자를 통해 page, perPageNum의 값이 디톨트로 셋팅된다.
+		//http://localhost:7070/board/listCri?page=5
+		// ==> Criteria 객체가 자동 생성되고 Criteria의 멤버변수 page에 5가 할당되고 나머지 멤버변수들은 생성자에서 설정된 디톨트 값을 갖는다.
+		//http://localhost:7070/board/listCri?page=17&perPageNum=15
+		// ==> Criteria 객체가 자동 생성되고 Criteria의 멤버변수 page에 17이 할당되고 perPageNum에는 15가 할당되고 나머지 멤버변수들은 생성자에서 설정된 디톨트 값을 갖는다.
+		//http://localhost:7070/board/listCri?page=55&perPageNum=20&joe=123456789
+		// ==> Criteria 객체가 자동 생성되고 Criteria의 멤버변수 page에 55가 할당되고 perPageNum에는 20이 할당되고 joe에는 123456789이 할당된다.
+		//▶ 신기하게도 request URL에 있는 parameter의 이름이 listAll() 메소드의 매개변수에 있는 Criteria의 멤버 변수의 이름과 동일한 변수에 자동할당되는 신기한 일이 일어난다.
+
+		logger.info("####### cri:", cri.toString());
+		
+		model.addAttribute("list", service.listCriteria(cri));
+	}
+
+──────────────────
+  (9) /views/board/listCri.jsp를 만든다.
+
+<%@ page language="java" contentType="text/html; charset=UTF-8"
+    pageEncoding="UTF-8"%>
+<%@ taglib uri="http://java.sun.com/jsp/jstl/core" prefix="c" %>
+<%@ taglib uri="http://java.sun.com/jsp/jstl/fmt" prefix="fmt" %>
+<%@ page session="false" %>
+
+<%@ include file="../include/header.jsp" %>
+
+	<!-- Main content -->
+	<section class="content">
+		<div class="row">
+			<!-- left column -->
+			<div class="col-md-12">
+				<!-- general form elements -->
+				<div class="box">
+					<div class="box-header with-border">
+						<h3 class="box-title">LIST ALL PAGE</h3>
+					</div><!-- class box-header -->
+					<div class="box-body">
+<table class="table table-bordered">
+	<tr>
+		<th style="width: 10px">BNO</th>
+		<th>TITLE</th>
+		<th>WRITER</th>
+		<th>REGDATE</th>
+		<th style="width: 40px">VIEWCNT</th>
+	</tr>
+
+	<c:forEach items="${list}" var="boardVO">
+		<tr>
+			<td>${boardVO.bno }</td> <!-- BoardVO의 변수 명과 일치해야 -->
+			<td><a href="/board/read?bno=${boardVO.bno}">${boardVO.title}</a></td>
+			<td>${boardVO.writer }</td>
+			<td><fmt:formatDate pattern="yyy-MM-dd HH:mm" value="${boardVO.regdate}"/></td>
+			<!-- boardVO.viewCnt는 BoardVO 클래스의 멤버 변수명과 일치해야 한다. -->
+			<td><span class="badge bg-red">${boardVO.viewCnt }</span></td> 
+		</tr>
+	</c:forEach>
+</table>					
+					</div> <!-- class box-body -->
+				</div> <!-- box -->
+			</div> <!-- col-md-12 -->
+	<div class="box-footer">
+		<button type="submit" class="btn btn-primary">글 쓰기</button>
+	</div>
+		</div> <!-- class row --> 
+	</section>
+
+<script>
+	var result = '${msg}';
+	//alert("result : "+result); //여기서 아무것도 없다
+	if (result == 'SUCCESS'){
+		alert("처리가 완료되었습니다.");
+	}
+	
+	$(document).ready(function(){
+		$(".btn-primary").on('click', function(){ 
+			self.location = "/board/register";
+		});
+	});
+	
+</script>
+<%@ include file="../include/footer.jsp" %>
+
+──────────────────
+  (10) 화면 하단의 페이지 번호 표시의 개념
+     화면에서 페이징 처리한 결과를 보여주기 위해서는 반드시 몇 개의 데이터가 필요하다. 현재 페이지 번호로부터 endPage 계산, endPage로부터 startPage 계산
+
+     -. 전체 데이터 갯수가 몇 개인지 정보(totalCount)
+     -. 한 페이지당 몇 개의 데이터를 보여줄지 정보(perPageNum)
+     -. 위의 상황에서 총 몇 개의 페이지가 나오는지에 대한 정보
+        (예: 한 페이지당 10개의 데이터 보여줄때 전체 데이터가 65개라면 총 페이지 갯수는 7페이지)
+     -. 시작 페이지 번호(startPage). 
+     -. 끝 페이지 번호(endPage). 
+     -. 이전 페이지 링크(prev). 만일 시작 페이지 번호가 1이 아니라면 "이전(prev)"으로 갈수 있는 링크가 제공되어야
+     -. 다음 페이지 링크(next). 만일 끝 페이지 번호보다 많은 양의 데이터가 존재한다면 "다음(next)"으로 갈수 있는 링크가 제공되어야
+     -. totalCount가 122, 한번에 10개의 페이지를 보여주고 한 페이지당 보여줄 데이터가 10개인 상황일때, 총 페이지 갯수는 13
+        ① page(현재 페이지 번호)가 3인경우 : startPage=1, endPage=10, next=true, prev=false
+        ② page가 10인경우 : startPage=1, endPage=10, next=true, prev=false
+        ③ page가 11인경우 : startPage=11, endPage=13, next=true, prev=false
+     -. totalCount가 122, 한번에 10개의 페이지를 보여주고 한 페이지당 보여줄 데이터가 10개인 상황일때
+        이때 현재 페이지 정보로부터 startPage, endPage 계산하는 원리는
+        (★※ 아래 ①~⑤는 그냥 참고로만 할것. 설명이 약간 이상한 면은 있음. ⑥ 공식을 잘 이해할 것 ★)
+        ① 13 / 10 (현재 페이지 번호 / 한번에 보여줄 페이지 갯수) = 1.3
+        ② 위 ①에서의 계산 결과를 소수점 이하를 무조건 반올림 : 2(1.3의 반올림)
+        ③ 위 ②의 2의 의미는 한 페이지당 10개씩 2번째 보여지는 페이지의 endPage를 계산하기 위한 값을 의미
+        ④ endPage는 위 ②에서 얻은 2에 한번에 보여줄 페이지의 갯수를 곱한다. 따라서 2 * 10 = 20이 endPage의 번호가 된다.
+        ⑤ 시작 페이지 번호인 startPage의 계산은 구해진 endPage - 9를한다. 9를 하는 이유는 한번에 보여줄 페이지의 갯수가 10개인데 endPage는 20으로 결과가 나왔으므로 총 10개 페이지 중 endPage를 제외하면 9개가 되므로 9를 뺀다.  
+        ⑥ ★공식 : endPage = (int)( Math.ceil(cri.getPage() / (double)displayPageNum) * displayPageNum )
+            displayPageNum은 한번에 보여줄 페이지 갯수를 의미. cri.getPage()는 현재 페이지를 의미. Math.ceil()은 소수점 이하 값이 뭐가 됐던 무조건 반올림한다.
+            이 공식의 핵심 개념은 displayPageNum이 10일 경우를 예로 생각해보면 페이지 번호 1~10까지 수 중에서 1/10(=0.1), 2/20(=0.2), 3/10(=0.3)... 10/10(=1). , 7일 경우를 예로 생각해보면 1/7(=0.14...), 2/7(=0.28...), 3/7(=0.42...) ... 6/7(=0.85...), 7/7(=1), 15일 경우를 생각해 보면 1/15(=0.06...), 2/15(=0.13...) ... 15/15(=1)과 같은 원리로 displayPageNum보다 적은 수는 해당 displayPageNum보다 적은 소수점 값을 갖게 되고 displayPageNum과 같은 페이지 번호일때만 1이 된다. 그리고 12/10, 15/10, 19/10... 이런 숫자는 무조건 1.xx의 값을 갖게 되고 이를 Math.ceil()을 하면 소수점 이하가 무조건 반올림 되서 2가 된다. 이러한 원리로 현재 페이지 번호와 한번에 보여줄 페이지 갯수를 이용해서 endPage를 이와 같은 원리로 계산할 수가 있다. 계산 원리를 한 마디로 정리하면 displayPageNum과 같은 수는 1, displayPageNum보다 적은 수는 무조건 0.xx ~ 1, 2배 큰 수는 2.xx ~ 2, 3배 큰 수는 3.xx ~ 3과 같은 원리를 이용
+            여기서 매우 중요한 것은 displayPageNum을 double로 하지 않으면 (cri.getPage() / displayPageNum)의 계산이 정수형으로 소수점 떨어져 나간 값에서 Math.ceil()을 하기 때문에 Math.ceil(20/10) * 10의 결과도 20, Math.ceil(21/10) * 10의 결과도 20이 나온다.  
+        ⑦ 현재페이지가 3일 때 endPage : Math.ceil(3/10.0) * 10 = Math.ceil(0.3) * 10 = 1 * 10 = 10 
+        ⑧ 현재페이지가 1일 때 endPage : Math.ceil(1/10.0) * 10 = Math.ceil(0.1) * 10 = 1 * 10  = 10
+        ⑨ 현재페이지가 20일 때 endPage : Math.ceil(20/10.0) * 10 = Math.ceil(2) * 10 = 2 * 10  = 20
+        ⑩ 현재페이지가 21일 때 endPage : Math.ceil(21/10.0) * 10 = 30 (21/10.0은 2.1인데 이를 Math.ceil()하면 3이 된다)
+        ⑪ 현재페이지가 37일 때 endPage : Math.ceil(37/15.0) * 15 = 45 (37/15.0은 2.46인데 이를 Math.ceil()하면 3이 된다. 따라서 3*15=45이다)
+        ⑫ 현재페이지가 17일 때 endPage : Math.ceil(17/15.0) * 15 = 30 (17/15.0은 1.13인데 이를 Math.ceil()하면 2이 된다. 따라서 2*15=30이다)
+        ⑬ ★공식 : startPage = (endPage - displayPageNum) + 1 혹은(이것은 위 ⑤의 설명에 근거한 것이다) startPage = endPage - (displayPageNum - 1)
+        ⑭ ★totalCount와 endPage의 재 계산(전체 데이터 갯수에 근거한 endPage 재계산) 공식
+            위 ⑥에서 구한 endPage가 전체 데이터 갯수에 근거해서 구한 tempEndPage보다 크면 전체 데이터 갯수에 근거해서 구한 tempEndPage를 endPage로 해야 한다.
+            int tempEndPage = (int)( Math.ceil(totalCount / (double)cri.getPerPageNum()) );
+	if(tempEndPage < endPage) {
+		endPage = tempEndPage;
+	}
+        ⑮ prev와 next 판단: prev는 startPage가 1이 아닌경우에 prev 링크 구현. next의 경우는 endPage * perPageNum이 totalCount보다 작으면 next 링크 구현
+            prev = startPage == 1 ? false : true;
+            next = endPage * cri.getPerPageNum() >= totalCount ? false : true; 
+
+──────────────────
+  (11) 페이징 처리용 클래스 제작(PageMaker)
+
+package com.joe.my.domain;
+
+//화면 하단의 페이징 처리를 위한 클래스
+public class PageMaker {
+	private int totalCount; 		//총 게시글 갯수(총 데이터 갯수)
+	private int startPage;		//화면 하단에 보여질 페이지번호들 중 시작 페이지
+	private int endPage;		//화면 하단에 보여질 페이지번호들 중 끝 페이지
+	private boolean prev;		//이전 페이지로 이동
+	private boolean next;		//다음 페이지로 이동
+	
+	private int displayPageNum;		//한번에 보여줄 페이지 갯수
+	private Criteria cri;			//현재 페이지(page), 한 페이지당 보여줄 게시글 갯수(perPageNum) 처리용 클래스
+	
+	public int getTotalCount() {
+		return totalCount;
+	}
+	public void setTotalCount(int totalCount) {
+		this.totalCount = totalCount;
+		
+		calcData();
+	}
+	
+	private void calcData() {
+		//여기서 매우 중요한 것은 displayPageNum을 double로 하지 않으면 (cri.getPage() / displayPageNum)의 계산이 정수형으로 소수점 떨어져 나간 값에서 Math.ceil()을 하기 때문에 
+		//Math.ceil(20/10) * 10의 결과도 20, Math.ceil(21/10) * 10의 결과도 20이 나온다.
+		endPage = (int)( Math.ceil(cri.getPage() / (double)displayPageNum) * displayPageNum );
+		startPage = (endPage - displayPageNum) + 1; //혹은 startPage = endPage - (displayPageNum - 1)
+		
+		int tempEndPage = (int)( Math.ceil(totalCount / (double)cri.getPerPageNum()) );
+		if(tempEndPage < endPage) {
+			endPage = tempEndPage;
+		}
+		
+		prev = startPage == 1 ? false : true;
+		next = endPage * cri.getPerPageNum() >= totalCount ? false : true;
+		
+	} //calcData
+	
+	public int getStartPage() {
+		return startPage;
+	}
+	public void setStartPage(int startPage) {
+		this.startPage = startPage;
+	}
+	public int getEndPage() {
+		return endPage;
+	}
+	public void setEndPage(int endPage) {
+		this.endPage = endPage;
+	}
+	public boolean isPrev() {
+		return prev;
+	}
+	public void setPrev(boolean prev) {
+		this.prev = prev;
+	}
+	public boolean isNext() {
+		return next;
+	}
+	public void setNext(boolean next) {
+		this.next = next;
+	}
+	public int getDisplayPageNum() {
+		return displayPageNum;
+	}
+	public void setDisplayPageNum(int displayPageNum) {
+		this.displayPageNum = displayPageNum;
+	}
+	public Criteria getCri() {
+		return cri;
+	}
+	public void setCri(Criteria cri) {
+		this.cri = cri;
+	}
+	
+	@Override
+	public String toString() {
+		return "PageMaker [totalCount=" + totalCount + ", startPage=" + startPage + ", endPage=" + endPage + ", prev="
+				+ prev + ", next=" + next + ", displayPageNum=" + displayPageNum + ", cri=" + cri + "]";
+	}
+}
+
+──────────────────
+  (12) BoardController에서 페이징 처리까지 구현된 기능 제작
+        아래 코드는 완전한 형태가 아니라 페이징 처리를 확인해 보기위한 간략 코드이다.
+
+	//http://localhost:7070/board/listPage?page=55&perPageNum=20
+	@RequestMapping(value="/listPage", method=RequestMethod.GET)
+	public void listPage(Criteria cri, Model model) throws Exception {
+		//http://localhost:7070/board/listPage?page=55&perPageNum=20로 들어올때 
+		//Criteria 클래스의 멤버 변수들에 page, perPageNum의 값이 할당되고 그에 해당하는 게시글을 조회 획득한다. 
+		model.addAttribute("list", service.listCriteria(cri));
+		
+		PageMaker pgMaker = new PageMaker();
+		//PageMaker 클래스에 Criteria 객체를 넘기는 이유는 페이징 계산을 위해서 Criteria가 가지고 있는 현재 page와 페이징 표시될 게시글 갯수(perPageNum) 정보를 넘기기 위해
+		pgMaker.setCri(cri);
+		pgMaker.setTotalCount(131);
+		
+		model.addAttribute("pageMaker", pgMaker);
+	} //listPage
+
+──────────────────
+  (13) 페이징 처리용 .jsp 페이지 만들기(listPage.jsp)
+        아래 코드는 완전한 형태가 아니라 페이징 처리를 이해 하기위한 간략 코드이다.
+        테스트용 URL은 http://localhost:7070/board/listPage?page=2&perPageNum=10 형태이다.
+
+<%@ page language="java" contentType="text/html; charset=UTF-8"
+    pageEncoding="UTF-8"%>
+<%@ taglib uri="http://java.sun.com/jsp/jstl/core" prefix="c" %>
+<%@ taglib uri="http://java.sun.com/jsp/jstl/fmt" prefix="fmt" %>
+<%@ page session="false" %>
+
+<%@ include file="../include/header.jsp" %>
+
+	<!-- Main content -->
+	<section class="content">
+		<div class="row">
+			<!-- left column -->
+			<div class="col-md-12">
+				<!-- general form elements -->
+				<div class="box">
+					<div class="box-header with-border">
+						<h3 class="box-title">LIST ALL PAGE</h3>
+					</div><!-- class box-header -->
+					<div class="box-body">
+<table class="table table-bordered">
+	<tr>
+		<th style="width: 10px">BNO</th>
+		<th>TITLE</th>
+		<th>WRITER</th>
+		<th>REGDATE</th>
+		<th style="width: 40px">VIEWCNT</th>
+	</tr>
+
+	<c:forEach items="${list}" var="boardVO">
+		<tr>
+			<td>${boardVO.bno }</td> <!-- BoardVO의 변수 명과 일치해야 -->
+			<td><a href="/board/read?bno=${boardVO.bno}">${boardVO.title}</a></td>
+			<td>${boardVO.writer }</td>
+			<td><fmt:formatDate pattern="yyy-MM-dd HH:mm" value="${boardVO.regdate}"/></td>
+			<!-- boardVO.viewCnt는 BoardVO 클래스의 멤버 변수명과 일치해야 한다. -->
+			<td><span class="badge bg-red">${boardVO.viewCnt }</span></td> 
+		</tr>
+	</c:forEach>
+</table>					
+					</div> <!-- class box-body -->
+				</div> <!-- box -->
+			</div> <!-- col-md-12 -->
+			
+	<div class="box-footer">
+		<button type="submit" class="btn btn-primary">글 쓰기</button>
+	</div> 
+			
+			<!-- ▶▶▶ 여기는 페이징 영역 : 시작 -->  
+				<div class="text-center">
+					<ul class="pagination">
+						<%-- prev 링크 구현 --%>
+						<c:if test="${pageMaker.prev }">
+							<li><a href="listPage?page=${pageMaker.startPage - 1 }&perPageNum=${pageMaker.cri.perPageNum}">&laquo;</a></li>  <!-- &laquo; : 왼쪽을 가리키는 이중 각도<<) -->
+						</c:if>			
+						
+						<!-- 화면 하단에 표시할 페이지 번호 출력 -->
+						<c:forEach begin="${pageMaker.startPage }" end="${pageMaker.endPage }" var="idx"> 
+							<!-- 현재 페이지 번호를 강조해서 표시하기 위해 -->
+							<li <c:out value="pageMaker.cri.page == idx ?' class=active':''"/> >
+								<!-- 페이지 번호 표시 및 특정 페이지 번호 클릭시 해당 페이지의 데이터 DB로부터 조회 및 화면 표시하기  -->
+								<a href='listPage?page=${idx }&perPageNum=${pageMaker.cri.perPageNum}'>${idx }</a>  
+							</li>
+						</c:forEach>
+						
+						<!-- next 링크 구현 -->
+						<c:if test="${pageMaker.next && pageMaker.endPage > 0}">
+							<li><a href="listPage?page=${pageMaker.endPage + 1 }&perPageNum=${pageMaker.cri.perPageNum}">&raquo;</a></li>  
+						</c:if>		 
+					</ul> <!-- class pagination -->
+				</div> <!-- class text-center --> 			
+			<!-- ▶▶▶ 여기는 페이징 영역 : 끝 -->
+			
+		</div> <!-- class row --> 
+	</section>
+<script>
+	var result = '${msg}';
+	//alert("result : "+result); //여기서 아무것도 없다
+	if (result == 'SUCCESS'){
+		alert("처리가 완료되었습니다.");
+	}
+	
+	$(document).ready(function(){
+		$(".btn-primary").on('click', function(){ 
+			self.location = "/board/register";
+		});
+	});
+</script>
+<%@ include file="../include/footer.jsp" %>
+
+
+──────────────────
+  (14) 글 내용 보기 후에 이전에 보던 목록 페이지로 이동하기(목록 페이지 정보 유지하기) - BoardController
+  글 목록 ⇒ 특정 글 제목 클릭 ⇒ 글 내용 보기 ⇒ "목록보기" 클릭시 이전에 보던 목록 페이지로 이동하는 기능(맨 첫 페이지로 이동하면 안됨)
+
+	//http://localhost:8181/board/readPage?bno=3&page=11&perPageNum=10과 같이 접속 
+	@RequestMapping(value="/readPage", method=RequestMethod.GET)
+	public void read(@RequestParam("bno") int bno, @ModelAttribute("cri") Criteria cri, Model mdl) throws Exception {
+		
+	            /* ************************************
+	                메소드의 파라미터(매개인자)에 @ModelAttribute를 사용할 때 자동으로 진행되는 작업들은 다음과 같다.
+	            (1) @ModelAttribute 어노테이션이 붙은 객체를 자동으로 생성한다. 
+	                이 코드에서는 Criteria 클래스의 객체  cri를 자동으로 생성한다. 
+	                이때 @ModelAttribute가 지정되는 클래스(Criteria)는 beans 클래스라야 한다. 
+	                그리고 getter와 setter가 명명 규칙에 맞게 만들어져 있어야 한다.
+	            (2) 생성된 객체(cri)에 HTTP url로 넘어 온 값들을 자동으로 바인딩한다. 
+	               위의 코드의 경우는 page=11&perPageNum=10 이렇게 들어오는데(bno는 Criteria 멤버 변수가 아님) 
+	                page, perPageNum의 값이 Criteria의 해당 변수의 setter를 통해서 해당 멤버 변수에로 binding된다.
+	            (3) @ModelAttribute 어노테이션이 붙은 객체가(여기서는 Criteria 객체) 
+                            자동으로 Model 객체(mdl)에 추가되고 따라서 Criteria 객체가 .jsp 뷰 단까지 전달이 된다.
+	              이때 @ModelAttribute의 괄호 안제 지정한 문자열 "cri"의 이름으로 Model 객체 mdl에 추가된다. 
+	              그리고 이 이름(@ModelAttribute의 괄호안에서 지정한 문자열 이름)으로 .jsp단에서 사용이 된다는 점이다.
+	            (4) 이후 .jsp 단에서는 ${cri.getPage()}와 같이 사용이 가능하다. 
+	            ************************************** */   
+		
+		//따라서 아래는 다음과 같이 한것과 동일한 효과이다.
+		//mdl.addAttribute("boardVO", service.read(bno))
+		mdl.addAttribute(service.read(bno));
+		
+		//view단의 .jsp를 찾아가는 원리는 return type이 void이므로 /board/readPage.jsp를 찾게 된다.
+	}
+	
+
+──────────────────
+  (15) 글 내용 보기 후에 이전에 보던 목록 페이지로 이동하기(목록 페이지 정보 유지하기) - readPage.jsp
+기존 read.jsp를 복사해서 필요한 부분을 수정한다.
+먼저 form에서 Controller로 넘길때 아래와 같이 bno만 넘기던 것을 
+
+<form role="form" method="post">
+	<input type="hidden" name="bno" value="${boardVO.bno }">
+</form>
+
+아래와 같이 page, perPageNum도 같이 넘기도록 form을 수정한다.
+
+<form role="form" method="post">
+	<input type="hidden" name="bno" value="${boardVO.bno }">
+	<input type="hidden" name="page" value="${cri.page }">
+	<input type="hidden" name="perPageNum" value="${cri.perPageNum }">
+</form>
+
+두 번째, 아래와 같이 LIST ALL 버튼 부분을 수정한다.
+
+<div class="box-footer">
+	<button type="submit" class="btn btn-warning">Modify</button>
+	<button type="submit" class="btn btn-danger">REMOVE</button>
+	<button type="submit" class="btn btn-primary">LIST ALL</button> ◀◀◀ 이 부분(수정 필요)
+</div>
+
+아래와 같이 수정한다.
+
+<div class="box-footer">
+	<button type="submit" class="btn btn-warning">Modify</button>
+	<button type="submit" class="btn btn-danger">REMOVE</button>
+	<button type="submit" class="btn btn-primary goListBtn">GO LIST</button>  ◀◀◀ 이 부분(수정됨)
+</div>
+
+목록 보기로 돌아가는 버튼인 GO LIST에 대한 이벤트 처리하는 JavaScript 코드를 수정한다.
+
+	//LIST ALL 버튼
+	$(".btn-primary").on("click", function(){
+		self.location = "/board/listAll";
+	});
+
+아래와 같이 수정한다.
+
+	//GO LIST 버튼
+	$(".goListBtn").on("click", function(){  
+		formObj.attr('method', 'get');
+		formObj.attr('action', '/board/listPage');
+		formObj.submit();   
+	});
+
+전체 완전한 소스는 아래와 같다(readPage.jsp).
+
+<%@ page language="java" contentType="text/html; charset=UTF-8"
+    pageEncoding="UTF-8"%>
+    
+<%@ include file="../include/header.jsp" %>
+	<!-- Main content -->
+	<section class="content">
+		<div class="row">
+			<!--  left column -->
+			<div class="col-md-12">
+				<!-- general form elements -->
+				<div class="box box-primary">
+					<div class="box-header">
+						<h3 class="box-title">READ BOARD</h3>
+					</div> <!-- class box-heaer -->
+					
+<form role="form" method="post">
+	<input type="hidden" name="bno" value="${boardVO.bno }">
+	<input type="hidden" name="page" value="${cri.page }">
+	<input type="hidden" name="perPageNum" value="${cri.perPageNum }">
+</form>
+
+<div class="box-body">
+	<div class="form-group">
+		<label for="exampleInputEmail1">Title</label>
+		<!-- 아래의 boardVO.title은 BoardVO.java의 변수명과 일치하게 표현해야 한다. -->
+		<input type="text" name="title" class="form-control" 
+				value="${boardVO.title}" readonly="readonly">
+	</div> <!-- class form-group -->
+	<div class="form-group">
+		<label for="exampleInputPassword1">Content</label>   
+		<textarea class="form-control" name="content" rows="10" 
+				readonly="readonly">${boardVO.content}</textarea>
+	</div> <!-- class form-group -->
+	<div class="form-group">
+		<label for="exampleInputEmail1">Writer</label>
+		<input type="text" name="writer" class="form-control"
+			value="${boardVO.writer}" readonly="readonly">
+	</div>
+</div> <!-- class box-body -->
+
+<div class="box-footer">
+	<button type="submit" class="btn btn-warning">Modify</button>
+	<button type="submit" class="btn btn-danger">REMOVE</button>
+	<button type="submit" class="btn btn-primary goListBtn">GO LIST</button>
+</div>
+
+<script>
+//3개의 버튼들 클릭 이벤트 처리를 위해
+$(document).ready(function(){
+	var formObj = $("form[role='form']");
+	//alert("formObj : "+formObj);
+	console.log("formObj : ", formObj);
+	
+	//Modify 버튼 클릭 이벤트 처리
+	$(".btn-warning").on("click", function(){
+		formObj.attr("action", "/board/modify");
+		//아래에서 method를 굳이 get으로 명시한 것은 위의 form의 method가 post로 명시되어 있기
+		//때문에 특별히 get 방식으로 전송하고자 해서 아래와 같이 method를 get으로 변경한 것이다.
+		formObj.attr("method", "get");
+		formObj.submit();
+	});
+	
+	//REMOVE 버튼
+	$(".btn-danger").on("click", function(){
+		formObj.attr("action", "/board/remove");
+		//여기에서 method를 post로 명시하지 않았음에도 불구하고
+		//BoardControl의 remove() 메소드를 post로 호출할수 있었던 이유는 위의 form의 method가
+		//post로 지정되어 있기 때문에 가능하다.
+		formObj.submit();
+	});
+	
+	//GO LIST 버튼
+	$(".goListBtn").on("click", function(){  
+		formObj.attr('method', 'get');
+		formObj.attr('action', '/board/listPage');
+		formObj.submit();   
+	});
+});
+</script>
+					
+				</div> <!-- class box -->
+			</div> <!-- class col-md-12 -->
+		</div> <!-- class row -->
+	</section>
+<%@ include file="../include/footer.jsp" %>    
+
+──────────────────
+  (16) 글 내용 보기 후에 이전에 보던 목록 페이지로 이동하기(목록 페이지 정보 유지하기) - listPage.jsp 수정, 보완
+위 『(13) 페이징 처리용 .jsp 페이지 만들기(listPage.jsp)』에서 글 목록을 보여줄때 제목 클릭시 아래와 같이 Controller의 request로 "/board/read"를 호출하면서 파라미터로 bno 하나만 넘겨준다.
+이것을 "/board/readPage"를 호출하면서 bno, page, perPageNum을 모두 Controller로 전달해 주도록 수정해야 한다.
+
+<table class="table table-bordered">
+	<tr>
+		<th style="width: 10px">BNO</th>
+		<th>TITLE</th>
+		<th>WRITER</th>
+		<th>REGDATE</th>
+		<th style="width: 40px">VIEWCNT</th>
+	</tr>
+
+	<c:forEach items="${list}" var="boardVO">
+		<tr>
+			<td>${boardVO.bno }</td> <!-- BoardVO의 변수 명과 일치해야 -->
+			<td><a href="/board/read?bno=${boardVO.bno}">${boardVO.title}</a></td> ◀◀◀ 이 부분(수정 필요)
+			<td>${boardVO.writer }</td>
+			<td><fmt:formatDate pattern="yyy-MM-dd HH:mm" value="${boardVO.regdate}"/></td>
+			<!-- boardVO.viewCnt는 BoardVO 클래스의 멤버 변수명과 일치해야 한다. -->
+			<td><span class="badge bg-red">${boardVO.viewCnt }</span></td> 
+		</tr>
+	</c:forEach>
+</table>					
+
+아래와 같이 바꾼다.
+
+<table class="table table-bordered">
+	<tr>
+		<th style="width: 10px">BNO</th>
+		<th>TITLE</th>
+		<th>WRITER</th>
+		<th>REGDATE</th>
+		<th style="width: 40px">VIEWCNT</th>
+	</tr>
+
+	<c:forEach items="${list}" var="boardVO">
+		<tr>
+			<td>${boardVO.bno }</td> <!-- BoardVO의 변수 명과 일치해야 -->
+			<!-- Controller의 /board/readPage로 bno, page, perPageNum을 넘김 -->
+			<td><a href="/board/readPage?bno=${boardVO.bno}&page=${pageMaker.cri.page}&perPageNum=${pageMaker.cri.perPageNum}">${boardVO.title}</a></td> ◀◀◀ 이 부분(수정됨)
+			<td>${boardVO.writer }</td>
+			<td><fmt:formatDate pattern="yyyy-MM-dd HH:mm" value="${boardVO.regdate}"/></td>
+			<!-- boardVO.viewCnt는 BoardVO 클래스의 멤버 변수명과 일치해야 한다. -->
+			<td><span class="badge bg-red">${boardVO.viewCnt }</span></td> 
+		</tr>
+	</c:forEach>
+</table>
+
+완성본은 아래와 같다.
+
+<%@ page language="java" contentType="text/html; charset=UTF-8"
+    pageEncoding="UTF-8"%>
+<%@ taglib uri="http://java.sun.com/jsp/jstl/core" prefix="c" %>
+<%@ taglib uri="http://java.sun.com/jsp/jstl/fmt" prefix="fmt" %>
+<%@ page session="false" %>
+
+<%@ include file="../include/header.jsp" %>
+
+	<!-- Main content -->
+	<section class="content">
+		<div class="row">
+			<!-- left column -->
+			<div class="col-md-12">
+				<!-- general form elements -->
+				<div class="box">
+					<div class="box-header with-border">
+						<h3 class="box-title">LIST ALL PAGE</h3>
+					</div><!-- class box-header -->
+					<div class="box-body">
+<table class="table table-bordered">
+	<tr>
+		<th style="width: 10px">BNO</th>
+		<th>TITLE</th>
+		<th>WRITER</th>
+		<th>REGDATE</th>
+		<th style="width: 40px">VIEWCNT</th>
+	</tr>
+
+	<c:forEach items="${list}" var="boardVO">
+		<tr>
+			<td>${boardVO.bno }</td> <!-- BoardVO의 변수 명과 일치해야 -->
+			<td><a href="/board/readPage?bno=${boardVO.bno}&page=${pageMaker.cri.page}&perPageNum=${pageMaker.cri.perPageNum}">${boardVO.title}</a></td>
+			<td>${boardVO.writer }</td>
+			<td><fmt:formatDate pattern="yyyy-MM-dd HH:mm" value="${boardVO.regdate}"/></td>
+			<!-- boardVO.viewCnt는 BoardVO 클래스의 멤버 변수명과 일치해야 한다. -->
+			<td><span class="badge bg-red">${boardVO.viewCnt }</span></td> 
+		</tr>
+	</c:forEach>
+</table>
+					</div> <!-- class box-body -->
+				</div> <!-- box -->
+			</div> <!-- col-md-12 -->
+			
+	<div class="box-footer">
+		<button type="submit" class="btn btn-primary">글 쓰기</button>
+	</div> 
+			
+			<!-- ▶▶▶ 여기는 페이징 영역 : 시작 -->  
+				<div class="text-center">
+					<ul class="pagination">
+						<%-- prev 링크 구현 --%>
+						<c:if test="${pageMaker.prev }">
+							<li><a href="listPage?page=${pageMaker.startPage - 1 }&perPageNum=${pageMaker.cri.perPageNum}">&laquo;</a></li>  <!-- &laquo; : 왼쪽을 가리키는 이중 각도<<) -->
+						</c:if>			
+						
+						<!-- 화면 하단에 표시할 페이지 번호 출력 -->
+						<c:forEach begin="${pageMaker.startPage }" end="${pageMaker.endPage }" var="idx"> 
+							<!-- 현재 페이지 번호를 강조해서 표시하기 위해 -->
+							<li <c:out value="pageMaker.cri.page == idx ?' class=active':''"/> >
+								<!-- 페이지 번호 표시 및 특정 페이지 번호 클릭시 해당 페이지의 데이터 DB로부터 조회 및 화면 표시하기  -->
+								<a href='listPage?page=${idx }&perPageNum=${pageMaker.cri.perPageNum}'>${idx }</a>  
+							</li>
+						</c:forEach>
+<!-- --------------------------------------------------------------------------------------------------------------
+  ▶ 현재 페이지 번호를 강조하는 방식을 이런식으로 해도 되겠다.
+
+		<!-- 현재 페이지 번호를 강조해서 표시하기 위해 -->
+		<li  >
+		<c:choose>
+			<c:when test="${pageMaker.cri.page == idx}">
+				<a href='listPage?page=${idx }&perPageNum=${pageMaker.cri.perPageNum}'  style="color:blue;">${idx }</a>  
+			</c:when>
+			<c:otherwise>
+				<a href='listPage?page=${idx }&perPageNum=${pageMaker.cri.perPageNum}'>${idx }</a>  
+			</c:otherwise>
+		</c:choose>
+		</li>
+---------------------------------------------------------------------------------------------------------------- -->
+						
+						<!-- next 링크 구현 -->
+						<c:if test="${pageMaker.next && pageMaker.endPage > 0}">
+							<li><a href="listPage?page=${pageMaker.endPage + 1 }&perPageNum=${pageMaker.cri.perPageNum}">&raquo;</a></li>  
+						</c:if>		 
+					</ul> <!-- class pagination -->
+				</div> <!-- class text-center --> 			
+			<!-- ▶▶▶ 여기는 페이징 영역 : 끝 -->
+			
+		</div> <!-- class row --> 
+	</section>
+
+<script>
+	var result = '${msg}';
+	//alert("result : "+result); //여기서 아무것도 없다
+	if (result == 'SUCCESS'){
+		alert("처리가 완료되었습니다.");
+	}
+	
+	$(document).ready(function(){
+		$(".btn-primary").on('click', function(){ 
+			self.location = "/board/register";
+		});
+	});
+	
+</script>
+<%@ include file="../include/footer.jsp" %>
+
+
+
+──────────────────
+  (17) 글 삭제 후에 이전에 보던 목록 페이지로 이동하기(목록 페이지 정보 유지하기) - BoardController
+
+	@RequestMapping(value="/removePage", method=RequestMethod.POST)
+	public String remove(@RequestParam("bno") int bno, Criteria cri, RedirectAttributes rttr) throws Exception{
+		
+		service.remove(bno);
+		
+		rttr.addAttribute("page", cri.getPage());
+		rttr.addAttribute("perPageNum", cri.getPerPageNum());
+		rttr.addFlashAttribute("msg", "SUCCESS");
+		
+		return "redirect:/board/listPage";
+	}
+
+──────────────────
+  (18) 글 삭제 후에 이전에 보던 목록 페이지로 이동하기(목록 페이지 정보 유지하기) - readPage.jsp 수정
+아래 코드를
+	//REMOVE 버튼
+	$(".btn-danger").on("click", function(){
+		formObj.attr("action", "/board/remove"); ◀◀◀ 이 부분(수정 필요)
+		//여기에서 method를 post로 명시하지 않았음에도 불구하고
+		//BoardControl의 remove() 메소드를 post로 호출할수 있었던 이유는 위의 form의 method가
+		//post로 지정되어 있기 때문에 가능하다.
+		formObj.submit();
+	});
+
+아래와 같이 수정한다.
+
+	//REMOVE 버튼
+	$(".btn-danger").on("click", function(){
+		formObj.attr("action", "/board/removePage"); ◀◀◀ 이 부분(수정됨)
+		//여기에서 method를 post로 명시하지 않았음에도 불구하고
+		//BoardControl의 remove() 메소드를 post로 호출할수 있었던 이유는 위의 form의 method가
+		//post로 지정되어 있기 때문에 가능하다.
+		formObj.submit();
+	});
+
+
+완전한 소스는 아래와 같다.
+
+<%@ page language="java" contentType="text/html; charset=UTF-8"
+    pageEncoding="UTF-8"%>
+    
+<%@ include file="../include/header.jsp" %>
+	<!-- Main content -->
+	<section class="content">
+		<div class="row">
+			<!--  left column -->
+			<div class="col-md-12">
+				<!-- general form elements -->
+				<div class="box box-primary">
+					<div class="box-header">
+						<h3 class="box-title">READ BOARD</h3>
+					</div> <!-- class box-heaer -->
+					
+<form role="form" method="post">
+	<input type="hidden" name="bno" value="${boardVO.bno }">
+	<input type="hidden" name="page" value="${cri.page }">
+	<input type="hidden" name="perPageNum" value="${cri.perPageNum }">
+</form>
+
+<div class="box-body">
+	<div class="form-group">
+		<label for="exampleInputEmail1">Title</label>
+		<!-- 아래의 boardVO.title은 BoardVO.java의 변수명과 일치하게 표현해야 한다. -->
+		<input type="text" name="title" class="form-control" 
+				value="${boardVO.title}" readonly="readonly">
+	</div> <!-- class form-group -->
+	<div class="form-group">
+		<label for="exampleInputPassword1">Content</label>   
+		<textarea class="form-control" name="content" rows="10" 
+				readonly="readonly">${boardVO.content}</textarea>
+	</div> <!-- class form-group -->
+	<div class="form-group">
+		<label for="exampleInputEmail1">Writer</label>
+		<input type="text" name="writer" class="form-control"
+			value="${boardVO.writer}" readonly="readonly">
+	</div>
+</div> <!-- class box-body -->
+
+<div class="box-footer">
+	<button type="submit" class="btn btn-warning">Modify</button>
+	<button type="submit" class="btn btn-danger">REMOVE</button>
+	<button type="submit" class="btn btn-primary goListBtn">GO LIST</button>
+</div>
+
+<script>
+//3개의 버튼들 클릭 이벤트 처리를 위해
+$(document).ready(function(){
+	var formObj = $("form[role='form']");
+	//alert("formObj : "+formObj);
+	console.log("formObj : ", formObj);
+	
+	//Modify 버튼 클릭 이벤트 처리
+	$(".btn-warning").on("click", function(){
+		formObj.attr("action", "/board/modify");
+		//아래에서 method를 굳이 get으로 명시한 것은 위의 form의 method가 post로 명시되어 있기
+		//때문에 특별히 get 방식으로 전송하고자 해서 아래와 같이 method를 get으로 변경한 것이다.
+		formObj.attr("method", "get");
+		formObj.submit();
+	});
+	
+	//REMOVE 버튼
+	$(".btn-danger").on("click", function(){
+		formObj.attr("action", "/board/removePage");
+		//여기에서 method를 post로 명시하지 않았음에도 불구하고
+		//BoardControl의 remove() 메소드를 post로 호출할수 있었던 이유는 위의 form의 method가
+		//post로 지정되어 있기 때문에 가능하다.
+		formObj.submit();
+	});
+	
+	//GO LIST 버튼
+	$(".goListBtn").on("click", function(){  
+		formObj.attr('method', 'get');
+		formObj.attr('action', '/board/listPage');
+		formObj.submit();   
+	});
+});
+</script>
+					
+				</div> <!-- class box -->
+			</div> <!-- class col-md-12 -->
+		</div> <!-- class row -->
+	</section>
+<%@ include file="../include/footer.jsp" %>    
+
+
+──────────────────
+  (19) 글 수정 후에 이전에 보던 목록 페이지로 이동하기(목록 페이지 정보 유지하기) - readPage.jsp 수정
+아래를 
+	//Modify 버튼 클릭 이벤트 처리
+	$(".btn-warning").on("click", function(){
+		formObj.attr("action", "/board/modify"); ◀◀◀ 이 부분(수정 필요)
+		//아래에서 method를 굳이 get으로 명시한 것은 위의 form의 method가 post로 명시되어 있기
+		//때문에 특별히 get 방식으로 전송하고자 해서 아래와 같이 method를 get으로 변경한 것이다.
+		formObj.attr("method", "get");
+		formObj.submit();
+	});
+
+아래와 같이 수정한다.
+
+	//Modify 버튼 클릭 이벤트 처리
+	$(".btn-warning").on("click", function(){
+		formObj.attr("action", "/board/modifyPage"); ◀◀◀ 이 부분(수정됨)
+		//아래에서 method를 굳이 get으로 명시한 것은 위의 form의 method가 post로 명시되어 있기
+		//때문에 특별히 get 방식으로 전송하고자 해서 아래와 같이 method를 get으로 변경한 것이다.
+		formObj.attr("method", "get");
+		formObj.submit();
+	});
+	
+완전한 소는 아래와 같다.
+
+<%@ page language="java" contentType="text/html; charset=UTF-8"
+    pageEncoding="UTF-8"%>
+    
+<%@ include file="../include/header.jsp" %>
+	<!-- Main content -->
+	<section class="content">
+		<div class="row">
+			<!--  left column -->
+			<div class="col-md-12">
+				<!-- general form elements -->
+				<div class="box box-primary">
+					<div class="box-header">
+						<h3 class="box-title">READ BOARD</h3>
+					</div> <!-- class box-heaer -->
+					
+<form role="form" method="post">
+	<input type="hidden" name="bno" value="${boardVO.bno }">
+	<input type="hidden" name="page" value="${cri.page }">
+	<input type="hidden" name="perPageNum" value="${cri.perPageNum }">
+</form>
+
+<div class="box-body">
+	<div class="form-group">
+		<label for="exampleInputEmail1">Title</label>
+		<!-- 아래의 boardVO.title은 BoardVO.java의 변수명과 일치하게 표현해야 한다. -->
+		<input type="text" name="title" class="form-control" 
+				value="${boardVO.title}" readonly="readonly">
+	</div> <!-- class form-group -->
+	<div class="form-group">
+		<label for="exampleInputPassword1">Content</label>   
+		<textarea class="form-control" name="content" rows="10" 
+				readonly="readonly">${boardVO.content}</textarea>
+	</div> <!-- class form-group -->
+	<div class="form-group">
+		<label for="exampleInputEmail1">Writer</label>
+		<input type="text" name="writer" class="form-control"
+			value="${boardVO.writer}" readonly="readonly">
+	</div>
+</div> <!-- class box-body -->
+
+<div class="box-footer">
+	<button type="submit" class="btn btn-warning">Modify</button>
+	<button type="submit" class="btn btn-danger">REMOVE</button>
+	<button type="submit" class="btn btn-primary goListBtn">GO LIST</button>
+</div>
+
+<script>
+//3개의 버튼들 클릭 이벤트 처리를 위해
+$(document).ready(function(){
+	var formObj = $("form[role='form']");
+	//alert("formObj : "+formObj);
+	console.log("formObj : ", formObj);
+	
+	//Modify 버튼 클릭 이벤트 처리
+	$(".btn-warning").on("click", function(){
+		formObj.attr("action", "/board/modifyPage");
+		//아래에서 method를 굳이 get으로 명시한 것은 위의 form의 method가 post로 명시되어 있기
+		//때문에 특별히 get 방식으로 전송하고자 해서 아래와 같이 method를 get으로 변경한 것이다.
+		formObj.attr("method", "get");
+		formObj.submit();
+	});
+	
+	//REMOVE 버튼
+	$(".btn-danger").on("click", function(){
+		formObj.attr("action", "/board/removePage");
+		//여기에서 method를 post로 명시하지 않았음에도 불구하고
+		//BoardControl의 remove() 메소드를 post로 호출할수 있었던 이유는 위의 form의 method가
+		//post로 지정되어 있기 때문에 가능하다.
+		formObj.submit();
+	});
+	
+	//GO LIST 버튼
+	$(".goListBtn").on("click", function(){  
+		formObj.attr('method', 'get');
+		formObj.attr('action', '/board/listPage');
+		formObj.submit();   
+	});
+});
+</script>
+					
+				</div> <!-- class box -->
+			</div> <!-- class col-md-12 -->
+		</div> <!-- class row -->
+	</section>
+<%@ include file="../include/footer.jsp" %>    
+
+──────────────────
+  (20) 글 수정 후에 이전에 보던 목록 페이지로 이동하기(목록 페이지 정보 유지하기) - BoardController
+
+	//여기서는 수정 버튼 클릭후 글 내용을 수정할 수 있도록 보여주는 역할(수정한 글 내용을 DB에 update하는 기능이 아님)
+             //http://localhost:7070/board/modifyPage?bno=229078&page=19&perPageNum=15
+	@RequestMapping(value="/modifyPage", method=RequestMethod.GET)
+	public void modifyPagingGET(@RequestParam("bno") int bno, @ModelAttribute("cri") Criteria cri, Model model) throws Exception {
+		
+	      /* ************************************
+	       메소드의 파라미터(매개인자)에 @ModelAttribute를 사용할 때 자동으로 진행되는 작업들은 다음과 같다.
+	       (1) @ModelAttribute 어노테이션이 붙은 객체를 자동으로 생성한다. 
+	           이 코드에서는 Criteria 클래스의 객체  cri를 자동으로 생성한다. 
+	           이때 @ModelAttribute가 지정되는 클래스(Criteria)는 beans 클래스라야 한다. 
+	           그리고 getter와 setter가 명명 규칙에 맞게 만들어져 있어야 한다.
+	       (2) 생성된 객체(cri)에 HTTP url로 넘어 온 값들을 자동으로 바인딩한다. 
+	           위의 코드의 경우는 page=11&perPageNum=10 이렇게 들어오는데(bno는 Criteria 멤버 변수가 아님) 
+	          page, perPageNum의 값이 Criteria의 해당 변수의 setter를 통해서 해당 멤버 변수에로 binding된다.
+	       (3) @ModelAttribute 어노테이션이 붙은 객체가(여기서는 Criteria 객체) 
+	           자동으로 Model 객체(model)에 추가되고 따라서 Criteria 객체가 .jsp 뷰 단까지 전달이 된다. 
+	           이때 @ModelAttribute의 괄호 안제 지정한 문자열 "cri"의 이름으로 Model 객체 model에 추가된다. 
+	           그리고 이 이름(@ModelAttribute의 괄호안에서 지정한 문자열 이름)으로 .jsp단에서 사용이 된다는 점이다.
+	       (4) 이후 .jsp 단에서는 ${cri.getPage()}와 같이 사용이 가능하다. 
+	      ************************************** */   
+		
+		//BoardVO com.joe.my.service.BoardService.read(Integer bno) throws Exception
+		model.addAttribute(service.read(bno));
+		
+		//return type이 void이므로 view단 .jsp 찾아가는 경로는 /board/midifyPage.jsp
+	}
+
+
+──────────────────
+  (21) 글 수정 후에 이전에 보던 목록 페이지로 이동하기(목록 페이지 정보 유지하기) - modifyPage.jsp
+기존에 있던 modify.jsp를 복사해서 필요한 부분을 수정해서 사용한다.
+여기서는 사용자에게 글을 수정할수 있는 상태의 화면을 제공하고, 수정된 내용을 Controller(modifyPage, method=POST)로 보내는 역할을 한다.
+
+form에 hidden으로 page와 perPageNum의 값을 Controller로 넘길수 있도록 아래를
+
+<form role="form" method="post">
+	<div class="box-body">
+		<div class="form-group">
+			<label for="exampleInputEmail1">BNO</label>
+			<input type="text" name="bno" class="form-control" value="${boardVO.bno}"
+				readonly="readonly"> <!-- Modify에서 bno는 수정하면 안되기때문에 -->
+		</div>
+		<div class="form-group">
+			<label for="exampleInputEmail1">Title</label>
+			<input type="text" name="title" class="form-control" value="${boardVO.title}">
+		</div>
+		<div class="form-group">
+			<label for="exampleInputPassword1">Content</label>
+			<textarea class="form-control" name="content" rows="10">${boardVO.content}</textarea>
+		</div>
+		<div class="form-group">
+			<label for="exampleInputEmail1">Writer</label>
+			<input type="text" name="writer" class="form-control" value="${boardVO.writer}">
+		</div>
+	</div> <!-- class box-body -->
+</form>				
+
+아래와 같이 변경한다.
+
+<form role="form" method="post" action="modifyPage">  ▶▶▶ action 추가
+	▶▶▶ 아래 2개의 hidden 추가 
+	<input type='hidden' name='page' value="${cri.page}"> 
+             <input type='hidden' name='perPageNum' value="${cri.perPageNum}">
+
+	<div class="box-body">
+		<div class="form-group">
+			<label for="exampleInputEmail1">BNO</label>
+			<input type="text" name="bno" class="form-control" value="${boardVO.bno}"
+				readonly="readonly"> <!-- Modify에서 bno는 수정하면 안되기때문에 -->
+		</div>
+		<div class="form-group">
+			<label for="exampleInputEmail1">Title</label>
+			<input type="text" name="title" class="form-control" value="${boardVO.title}">
+		</div>
+		<div class="form-group">
+			<label for="exampleInputPassword1">Content</label>
+			<textarea class="form-control" name="content" rows="10">${boardVO.content}</textarea>
+		</div>
+		<div class="form-group">
+			<label for="exampleInputEmail1">Writer</label>
+			<input type="text" name="writer" class="form-control" value="${boardVO.writer}">
+		</div>
+	</div> <!-- class box-body -->
+</form>				
+
+SAVE 버튼과 CANCEL 버튼에 대한 이벤트 처리하는 아래의 JavaScript를 
+
+	$(document).ready(function(){
+		var formObj = $("form[role='form']");
+		console.log(formObj);
+		
+		//CANCEL 버튼
+		$(".btn-warning").on("click", function(){
+			self.location = "/board/listAll";
+		});
+		
+		//SAVE
+		$(".btn-primary").on("click", function(){
+			formObj.submit();
+		});
+	});
+
+아래와 같이 변경한다.
+
+$(document).ready(function() {
+	var formObj = $("form[role='form']");
+	console.log(formObj);
+
+	$(".btn-warning").on("click", function() {
+		self.location = "/board/listPage?page=${cri.page}&perPageNum=${cri.perPageNum}";
+	});
+
+	$(".btn-primary").on("click", function() {
+		formObj.submit();
+	});
+});
+
+완전한 소스는 아래
+
+<%@ page language="java" contentType="text/html; charset=UTF-8"
+    pageEncoding="UTF-8"%>
+
+<%@ include file="../include/header.jsp" %>
+
+<!-- Main content -->
+<section class="content">
+	<div class="row">
+		<!-- left column -->
+		<div class="col-md-12">
+			<!-- general from elements -->
+			<div class="box box-primary">
+				<div class="box-header">
+					<h3 class="box-title">READ BOARD</h3>
+				</div> <!-- class box-header -->
+
+<form role="form" action="modifyPage" method="post">
+	<input type="hidden" name='page' value="${cri.page }">
+	<input type="hidden" name="perPageNum" value="${cri.perPageNum }">
+	
+	<div class="box-body">
+		<div class="form-group">
+			<label for="exampleInputEmail1">BNO</label>
+			<input type="text" name="bno" class="form-control" value="${boardVO.bno}"
+				readonly="readonly"> <!-- Modify에서 bno는 수정하면 안되기때문에 -->
+		</div>
+		<div class="form-group">
+			<label for="exampleInputEmail1">Title</label>
+			<input type="text" name="title" class="form-control" value="${boardVO.title}">
+		</div>
+		<div class="form-group">
+			<label for="exampleInputPassword1">Content</label>
+			<textarea class="form-control" name="content" rows="10">${boardVO.content}</textarea>
+		</div>
+		<div class="form-group">
+			<label for="exampleInputEmail1">Writer</label>
+			<input type="text" name="writer" class="form-control" value="${boardVO.writer}">
+		</div>
+	</div> <!-- class box-body -->
+</form>				
+
+<div class="box-footer">
+	<button type="submit" class="btn btn-primary">SAVE</button>
+	<button type="submit" class="btn btn-warning">CANCEL</button>
+</div>
+				
+<script>
+	$(document).ready(function(){
+		var formObj = $("form[role='form']");
+		
+		//CANCEL 버튼
+		$(".btn-warning").on("click", function(){
+			self.location = "/board/listPage?page=${cri.page}&perPageNum=${cri.perPageNum}";
+		});
+		
+		//SAVE
+		$(".btn-primary").on("click", function(){
+			formObj.submit();
+		});
+	});
+</script>				
+			</div> <!-- class box box-primary -->
+		</div> <!-- class col-md-12 -->
+	</div> <!-- class row -->
+</section>
+
+<%@ include file="../include/footer.jsp" %>    
+
+──────────────────
+  (22) 글 수정 내용을 DB에 update 후에 이전에 보던 목록 페이지로 이동하기(목록 페이지 정보 유지하기) - BoardController
+modifyPage.jsp에서 수정된 글 내용을 DB에 update하는 기능. modifyPage라는 동일한 이름의 @RequestMapping이 있는데 GET 방식은 글을 수정할수 있도록 글 내용을 DB에서 가져와서 modifyPage.jsp로 넘기는 역할을 하고 POST 방식은 modifyPage.jsp에서 넘어온 수정 내용을 DB에 업데이트하는 역할을 하는데 여기서는 그 POST 역할에 해당하는 내용이다.
+
+	//여기서는 수정된 내용을 DB에 업데이트 하는 기능
+	//http://localhost:7070/board/modifyPage?bno=228832&page=35&perPageNum=15
+	@RequestMapping(value="modifyPage", method=RequestMethod.POST)
+	public String modifyPagingPOST(BoardVO board, Criteria cri, RedirectAttributes rttr) throws Exception {
+		//BoardVO에는 게시글 관련 정보가, Criteria에는 페이지네이션 관련 정보(page, perPageNum)가 넘어오므로
+		
+		service.modify(board);
+		
+		rttr.addAttribute("page", cri.getPage());
+		rttr.addAttribute("perPageNum", cri.getPerPageNum());
+		rttr.addFlashAttribute("msg", "SUCCESS");
+		
+		//아래의 redirect는 위의 아래 RequestMapping이 호출이 되고 redirect 되는 곳으로 rttr의 값이 넘어간다.
+		//@RequestMapping(value="/listPage", method=RequestMethod.GET)
+		//public void listPage(Criteria cri, Model model) throws Exception {
+		return "redirect:/board/listPage";
+	}
+
+──────────────────
+  (23) 글 쓰기 상태에서 목록가기 시 이전에 보던 목록 페이지로 이동하기(목록 페이지 정보 유지하기) - listPage.jsp
+
+아래 코드를 
+
+	$(document).ready(function(){
+		//글 쓰기
+		$(".btn-primary").on('click', function(){ 
+			self.location = "/board/register"; ◀◀◀ 이 부분(수정 필요)
+		});
+	});
+
+아래와 같이 수정한다. 글쓰기 버튼에 page, perPageNum의 값을 Controller로 넘긴다.
+
+	$(document).ready(function(){
+		//글 쓰기
+		$(".btn-primary").on('click', function(){ 
+			self.location = "/board/register?page=${pageMaker.cri.page}&perPageNum=${pageMaker.cri.perPageNum}"; ◀◀◀ 이 부분(수정 됨)
+		});
+	});
+
+──────────────────
+  (24) 글 쓰기 상태에서 목록가기 시 이전에 보던 목록 페이지로 이동하기(목록 페이지 정보 유지하기) - Controller
+listPage.jsp에서 넘어온 page, perPageNum을 Controller에서 register.jsp로 넘겨 글쓰기 취소하고 목록으로 이동할때 이전 보던 목폭 페이지로 넘어갈수 있도록 처리.
+registGET()의 파라미터(매개인자)에 @ModelAttribute 어노테이션을 통해 Criteria 객체에 담긴 page, perPageNum 정보를 Model 객체에 실어 register.jsp로 넘긴다.
+
+	//return type이 String이 아닌 void일때 .jsp를 찾아가는 원리는 RequestMapping의 register를
+	//이용해 register.jsp를 찾아간다.
+	@RequestMapping(value="/register", method=RequestMethod.GET)
+	public void registGET(BoardVO board, @ModelAttribute("cri") Criteria cri, Model model) throws Exception{ ◀◀◀(여기 @ModelAttribute 추가)
+		logger.info("▶▶▶ register get ..." + board.toString());
+		logger.info("▶▶▶ register get cri.toString() : " + cri.toString());
+		
+		model.addAttribute("", "");
+		//return type이 void이므로 /board/register.jsp로 이동한다. 
+	} //registGET
+
+──────────────────
+  (25) 글 쓰기 상태에서 목록가기 시 이전에 보던 목록 페이지로 이동하기(목록 페이지 정보 유지하기) - register.jsp 수정
+"글쓰기" 상태 중 글쓰기를 취소하고 "목록"으로 이동할 때 이전에 보던 목록 페이지로 이동할 수 있도록 아래와 같이 수정한다.
+
+아래 코드를 
+
+	//LIST ALL 버튼
+	$(".btn-primary").on("click", function(){
+		self.location = "/board/listAll";
+	});
+
+아래와 같이 수정한다.
+
+		//LIST ALL
+		$('.btn-primary').on('click', function(){  
+			self.location = "/board/listPage?page=${cri.page}&perPageNum=${cri.perPageNum}";
+		});
+
+form에 hidden으로 page, perPageNum을 Controller로 넘긴다.
+
+<!-- 아래 form에서 action이 빠져있다. 이렇게 action이 명시되어있지 않으면 현재 경로를 그대로 action의
+대상으로 잡는다. 즉 현재 경로는 localhost:8181/board/register를 그대로 action으로 잡는다.
+따라서 post이면서 url이 localhost:8181/board/register이면 BoardControl 클래스의
+registPOST()가 호출되어 실행되는 것이다.  -->				
+<form role="form" method="post">
+	<div class="box-body">
+		<div class="form-group">
+			<label for="exampleInputEmail1">Title</label>
+			<input type="text" name="title" class="form-control" placeholder="Enter Title">
+		</div> <!-- class form-group -->
+		<div class="form-group">
+			<label for="exampleInputPassword1">Content</label>
+			<textarea class="form-control" name="content" rows="3" placeholder="Enter..."></textarea>
+		</div> <!-- class form-group -->
+		<div class="form-group">
+			<label for="exampleInputEmail1">Writer</label>
+			<input type="text" name="writer" class="form-control" placeholder="Enter Writer">
+		</div> <!-- class form-group -->
+	</div> <!-- class box-body -->
+</form>
+
+아래와 같이 수정한다.
+
+<!-- 아래 form에서 action이 빠져있다. 이렇게 action이 명시되어있지 않으면 현재 경로를 그대로 action의
+대상으로 잡는다. 즉 현재 경로는 localhost:8181/board/register를 그대로 action으로 잡는다.
+따라서 post이면서 url이 localhost:8181/board/register이면 BoardControl 클래스의
+registPOST()가 호출되어 실행되는 것이다.  -->				
+<form role="form" method="post">
+             ◀◀◀(아래 2개의 hidden에 담아서 BoardController로 넘긴다.)
+	<input type="hidden" name="page" value="${cri.page }"> 
+	<input type="hidden" name="perPageNum" value="${cri.perPageNum }">
+	
+	<div class="box-body">
+		<div class="form-group">
+			<label for="exampleInputEmail1">Title</label>
+			<input type="text" name="title" class="form-control" placeholder="Enter Title">
+		</div> <!-- class form-group -->
+		<div class="form-group">
+			<label for="exampleInputPassword1">Content</label>
+			<textarea class="form-control" name="content" rows="3" placeholder="Enter..."></textarea>
+		</div> <!-- class form-group -->
+		<div class="form-group">
+			<label for="exampleInputEmail1">Writer</label>
+			<input type="text" name="writer" class="form-control" placeholder="Enter Writer">
+		</div> <!-- class form-group -->
+	</div> <!-- class box-body -->
+</form>
+
+──────────────────
+  (26) 글 쓰기 후에 이전에 보던 목록 페이지로 이동하기(목록 페이지 정보 유지하기) - BoardController
+
+아래 코드를 
+
+	//게시글 등록
+	@RequestMapping(value="register", method=RequestMethod.POST)
+	public String registPOST(BoardVO board, RedirectAttributes rttr) throws Exception {
+		logger.info("▶▶▶register post ............");
+		
+		service.regist(board);
+		
+		//addFlashAttribute()는 url 주소에 msg=SUCCESS와 같은 내용이 노출되지않는다. POST 방식으로 view단으로 전달
+		//반변에 addAttribute()는 url 주소에 노출이 된다. GET 방식으로 view단에 전달
+		rttr.addFlashAttribute("msg", "SUCCESS");
+		
+		//WEB-INF/views/board/listAll.jsp를 찾아서 실행한다.
+		//webapp/WEB-INF/spring/appServlet/servlet-context.xml을 참조
+		//게시글 등록 후 전체 게시글 목록 보여주는 listAll()로 자동 이동
+		return "redirect:/board/listAll";
+	} //registPOST
+
+아래와 같이 수정한다.
+
+	//게시글 등록
+	@RequestMapping(value="register", method=RequestMethod.POST)
+	public String registPOST(BoardVO board, Criteria cri, RedirectAttributes rttr) throws Exception { ◀◀◀(Criteria 추가)
+		
+		service.regist(board);
+		
+		//addFlashAttribute()는 url 주소에 msg=SUCCESS와 같은 내용이 노출되지않는다. POST 방식으로 view단으로 전달
+		//반변에 addAttribute()는 url 주소에 노출이 된다. GET 방식으로 view단에 전달
+		rttr.addFlashAttribute("msg", "SUCCESS");
+		
+		//WEB-INF/views/board/listAll.jsp를 찾아서 실행한다.
+		//webapp/WEB-INF/spring/appServlet/servlet-context.xml을 참조
+		//게시글 등록 후 전체 게시글 목록 보여주는 listAll()로 자동 이동
+		return "redirect:/board/listPage";  ◀◀◀(listPage로 변경)
+	} //registPOST
+
+
+──────────────────
+──────────────────
+──────────────────
+──────────────────
+──────────────────
+──────────────────
+──────────────────
+──────────────────
+
+
+
+◆ Spring Web Application이 최초 구동시 참조하는 설정 파일들과 구동 순서
+-. 컨테이너 : 특정 객체 생성과 관리를 담당. 
+-. Servlet 컨테이너 실행 순서
+ ① WEB-INF/web.xml 파일을 로딩하여 구동
+     이 파일에서 설정한 객체를 클라이언트의 요청이 들어오는 순간 해당 객체를 생성하고 관리한다.
+ ② 
+ ③ 
+ ④ 
+ ⑤ 
+ ⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮
+
+
+
+
+▶ Spring 환경 설정
+ (1) XML 형식 
+    -. 기본
+    -. DB 연동
+    -. Mybatis 설정
+
+ (2) Java 소스단에서
+
+▶ Pagination
+
+
+
+   
+ 
